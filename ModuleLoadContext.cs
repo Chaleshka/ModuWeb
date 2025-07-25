@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
 using System.Runtime.Loader;
 
 namespace ModuWeb;
@@ -8,25 +9,16 @@ namespace ModuWeb;
 /// </summary>
 internal class ModuleLoadContext : AssemblyLoadContext
 {
-    private readonly AssemblyDependencyResolver _resolver;
+    private static readonly ConcurrentDictionary<string, WeakReference<Assembly>> _dependencyCache = new();
     private readonly string _dependenciesPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ModuleLoadContext"/> class with the specified module path and dependency directory.
     /// </summary>
-    /// <param name="modulePath">Path to the main module assembly (.dll).</param>
     /// <param name="dependenciesPath">Path to the directory containing module-specific dependencies.</param>
-    internal ModuleLoadContext(string modulePath, string dependenciesPath)
-        : base(isCollectible: true)
+    internal ModuleLoadContext(string dependenciesPath) : base(isCollectible: true)
     {
-        _resolver = new AssemblyDependencyResolver(modulePath);
         _dependenciesPath = dependenciesPath;
-
-        Resolving += (context, name) =>
-        {
-            var depPath = Path.Combine(_dependenciesPath, $"{name.Name}.dll");
-            return File.Exists(depPath) ? LoadFromAssemblyPath(depPath) : null;
-        };
     }
 
     /// <summary>
@@ -34,9 +26,24 @@ internal class ModuleLoadContext : AssemblyLoadContext
     /// </summary>
     /// <param name="assemblyName">The name of the assembly to resolve.</param>
     /// <returns>The loaded assembly, or <c>null</c> if resolution failed.</returns>
-    protected override Assembly? Load(AssemblyName assemblyName)
+    protected override Assembly Load(AssemblyName assemblyName)
     {
-        string? path = _resolver.ResolveAssemblyToPath(assemblyName);
-        return path != null ? LoadFromAssemblyPath(path) : null;
+        if (_dependencyCache.TryGetValue(assemblyName.Name, out var weakRef) &&
+            weakRef.TryGetTarget(out Assembly cachedAssembly))
+        {
+            return cachedAssembly;
+        }
+
+        string depPath = Path.Combine(_dependenciesPath, $"{assemblyName.Name}.dll");
+        if (File.Exists(depPath))
+        {
+            byte[] bytes = File.ReadAllBytes(depPath);
+            var assembly = LoadFromStream(new MemoryStream(bytes));
+
+            _dependencyCache[assemblyName.Name] = new WeakReference<Assembly>(assembly);
+            return assembly;
+        }
+
+        return base.Load(assemblyName);
     }
 }

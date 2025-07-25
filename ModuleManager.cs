@@ -105,11 +105,17 @@ public class ModuleManager
 
         try
         {
-            string tempModulePath = CopyToWorkingDirectory(originalPath, _workingDirectory);
+
+
             CopyDependenciesToWorkingDirectory();
 
-            var loadContext = new ModuleLoadContext(tempModulePath, _workingDependenciesDirectory);
-            var assembly = loadContext.LoadFromAssemblyPath(tempModulePath);
+            var loadContext = new ModuleLoadContext(_workingDependenciesDirectory);
+
+            byte[] moduleBytes = File.ReadAllBytes(originalPath);
+            var context = new ModuleLoadContext(_workingDependenciesDirectory);
+            using var stream = new MemoryStream(moduleBytes);
+
+            var assembly = loadContext.LoadFromStream(stream);
 
             var moduleType = assembly.GetTypes()
                 .FirstOrDefault(t => typeof(ModuleBase).IsAssignableFrom(t) && !t.IsAbstract);
