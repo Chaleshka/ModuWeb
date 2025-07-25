@@ -10,8 +10,15 @@ namespace ModuWeb.Json
     {
         public static T? Deserialize<T>(string json)
         {
-            var doc = JsonDocument.Parse(json);
-            return (T?)DeserializeValue(typeof(T), doc.RootElement);
+            try
+            {
+                var doc = JsonDocument.Parse(json);
+                return (T?)DeserializeValue(typeof(T), doc.RootElement);
+            }
+            catch
+            {
+                return default;
+            }
         }
 
         private static object? DeserializeValue(Type type, JsonElement element)
