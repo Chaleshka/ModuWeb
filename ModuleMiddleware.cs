@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ModuWeb.Extentions;
+using System;
 using System.IO;
 
 namespace ModuWeb;
@@ -75,9 +76,11 @@ public class ModuleMiddleware
     /// <param name="context">HTTP context of the request.</param>
     public async Task InvokeAsync(HttpContext context)
     {
+        Logger.Info("Request " + context.Request.Path);
         var module = GetModuleFromUrl(context.Request.Path, out var modulePath);
         if (module != null)
         {
+            Logger.Info("Request into module " + modulePath);
             await module?.Handle(context, modulePath, context.Request.Method.ToUpper());
             return;
         }
