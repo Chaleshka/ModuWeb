@@ -24,9 +24,17 @@ internal class DynamicCorsPolicyProvider : ICorsPolicyProvider
                 .AllowAnyHeader()
                 .AllowAnyOrigin();
         else
-            policyBuilder
-                .WithOrigins(module.WithOriginsCors)
-                .WithHeaders(module.WithHeadersCors);
+        {
+            if (module.WithOriginsCors.Any())
+                policyBuilder.WithOrigins(module.WithOriginsCors);
+            else
+                policyBuilder.AllowAnyOrigin();
+
+            if (module.WithHeadersCors.Any())
+                policyBuilder.WithHeaders(module.WithHeadersCors);
+            else
+                policyBuilder.AllowAnyHeader();
+        }
 
         return Task.FromResult(policyBuilder.Build());
     }
