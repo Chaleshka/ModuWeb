@@ -21,10 +21,26 @@ namespace ModuWeb
                 {
                     try
                     {
-                        object? converted = Convert.ChangeType(value.ToString(), prop.PropertyType);
+                        object? converted = null;
+                        var type = prop.PropertyType;
+
+                        var underlyingType = Nullable.GetUnderlyingType(type);
+
+                        if (underlyingType != null)
+                        {
+                            if (string.IsNullOrWhiteSpace(value.ToString()))
+                                converted = null;
+                            else
+                                converted = Convert.ChangeType(value.ToString(), underlyingType);
+                        }
+                        else
+                        {
+                            converted = Convert.ChangeType(value.ToString(), type);
+                        }
+
                         prop.SetValue(obj, converted);
                     }
-                    catch(Exception ex)
+                    catch (Exception ex)
                     {
                         Logger.Error(ex);
                     }
