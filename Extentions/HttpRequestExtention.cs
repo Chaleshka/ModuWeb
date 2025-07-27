@@ -1,6 +1,4 @@
 ﻿using ModuWeb.Json;
-using System.Net.NetworkInformation;
-using static ModuWeb.examples.WhatsYourNameModule;
 
 namespace ModuWeb.Extentions
 {

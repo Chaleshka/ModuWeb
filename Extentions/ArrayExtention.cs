@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace ModuWeb.Extentions
+﻿namespace ModuWeb.Extentions
 {
     public static class ArrayExtension
     {

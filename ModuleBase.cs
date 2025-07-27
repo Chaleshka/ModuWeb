@@ -1,6 +1,4 @@
-﻿using System.IO;
-
-namespace ModuWeb;
+﻿namespace ModuWeb;
 
 /// <summary>
 /// Represents a base class for modules providing routing, CORS configuration, and lifecycle hooks.
