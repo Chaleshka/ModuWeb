@@ -5,6 +5,10 @@ namespace ModuWeb
 {
     public class QueryParser
     {
+        /// <summary>
+        /// Parsring query into T object;
+        /// </summary>
+        /// <param name="query">Query of the request</param>
         public static T? Parse<T>(IQueryCollection query) where T : new()
         {
             var obj = new T();
