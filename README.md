@@ -177,7 +177,7 @@ After placing a sample DLL in `modules/`, you can access its route via:
 http://localhost:5000/{ModuleName}/{Route}
 ```
 
-For example, with a module named [`HelloWorld`](/examples/HelloWorldModule):
+For example, with a module named [`HelloWorld`](/examples/HelloWorldModule.cs):
 
 ```
 GET http://localhost:5000/HelloWorld/hello
