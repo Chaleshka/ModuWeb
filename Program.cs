@@ -13,8 +13,6 @@ internal class Program
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
 
-        builder.WebHost.UseUrls(builder.Configuration["ApplicationUrl"]);
-
         var app = builder.Build();
         app.UseCors();
 
