@@ -1,4 +1,8 @@
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using System.Text.Json.Serialization;
+using System.Text.Json;
+using Microsoft.AspNetCore.Http.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ModuWeb;
 
@@ -12,6 +16,17 @@ internal class Program
         builder.Services.AddCors();
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
+
+        builder.Services.Configure<JsonOptions>(options =>
+        {
+            options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+            options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+
+            options.SerializerOptions.TypeInfoResolver = JsonTypeInfoResolver.Combine(
+                options.SerializerOptions.TypeInfoResolver,
+                new DefaultJsonTypeInfoResolver()
+            );
+        });
 
         var app = builder.Build();
         app.UseCors();

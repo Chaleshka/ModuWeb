@@ -29,7 +29,7 @@ namespace ModuWeb.examples
             Map("name", "PUT", PutNameHandler);
             Map("name", "GET", GetNameHandler);
             Map("name", "DELETE", DeleteNameHandler);
-            Map("names", "CHECK", CheckNameHandler); //Example custom method
+            Map("names", "CHECK", CheckNameHandler); //Custom method
         }
 
         private async Task PutNameHandler(HttpContext context)
@@ -46,8 +46,8 @@ namespace ModuWeb.examples
                 id = Random.Shared.Next();
             storage[id] = data.Name;
 
-            await context.Response.WriteAsync(CustomJsonSerializer.Serialize(
-                new NameIdData() { name_id = id }));
+            await context.Response.WriteAsJsonAsync(
+                new NameIdData() { name_id = id });
         }
 
         private async Task GetNameHandler(HttpContext context)
@@ -59,8 +59,8 @@ namespace ModuWeb.examples
                 return;
 
             context.Response.StatusCode = 200;
-            await context.Response.WriteAsync(CustomJsonSerializer.Serialize(
-                new NameData() { Name = storage[data.name_id.Value] }));
+            await context.Response.WriteAsJsonAsync(
+                new NameData() { Name = storage[data.name_id.Value] });
         }
 
         private async Task DeleteNameHandler(HttpContext context)
@@ -77,8 +77,9 @@ namespace ModuWeb.examples
 
         private async Task CheckNameHandler(HttpContext context)
         {
-            await context.Response.WriteAsync(CustomJsonSerializer.Serialize(
-                new NamesData() { names = storage.Values.ToArray() }));
+            await context.Response.WriteAsJsonAsync(
+                new NamesData() { names = storage.Values.ToArray() });
         }
+
     }
 }
