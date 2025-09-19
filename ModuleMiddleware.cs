@@ -74,15 +74,21 @@ public class ModuleMiddleware
     /// <param name="context">HTTP context of the request.</param>
     public async Task InvokeAsync(HttpContext context)
     {
-        Logger.Info("Request " + context.Request.Path);
-        var module = GetModuleFromUrl(context.Request.Path, out var modulePath);
-        if (module != null)
+        try
         {
-            Logger.Info("Request into module " + modulePath);
-            await module?.Handle(context, modulePath, context.Request.Method.ToUpper());
-            return;
-        }
+            Logger.Info($"Request {context.Request.Method.ToUpper()} {context.Request.Path}");
+            var module = GetModuleFromUrl(context.Request.Path, out var modulePath);
+            if (module != null)
+            {
+                await module?.Handle(context, modulePath, context.Request.Method.ToUpper());
+                return;
+            }
 
-        await _next(context);
+            await _next(context);
+        }
+        catch(Exception ex)
+        {
+            Logger.Error(ex);
+        }
     }
 }
