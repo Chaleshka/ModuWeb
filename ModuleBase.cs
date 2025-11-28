@@ -18,6 +18,12 @@ public abstract class ModuleBase
     public virtual string[] WithHeadersCors { get; } = Array.Empty<string>();
 
     /// <summary>
+    /// Gets a value indicating will failed CORS requests be blocked for this module.
+    /// Override to specify will failed requests be blocked.
+    /// </summary>
+    public virtual bool BlockFailedCorsRequests { get; } = false;
+
+    /// <summary>
     /// Internal collection of routes mapped for this module.
     /// </summary>
 
@@ -69,5 +75,5 @@ public abstract class ModuleBase
     /// Called when the module is unloaded.
     /// Override to perform cleanup tasks.
     /// </summary>
-    public virtual async Task OnModuleUnLoad() { }
+    public virtual async Task OnModuleUnload() { }
 }

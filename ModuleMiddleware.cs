@@ -18,7 +18,7 @@ public class ModuleMiddleware
         }
     }
     private readonly RequestDelegate _next;
-    internal ModuleManager _moduleManager => ModuleManager.Instance;
+    internal ModuleManager moduleManager => ModuleManager.Instance;
     private readonly string _basePath;
 
     /// <summary>
@@ -60,7 +60,7 @@ public class ModuleMiddleware
         var moduleName = modulePathElements[0];
         modulePath = string.Join("/", modulePathElements.Skip(1));
 
-        return _moduleManager.GetModule(moduleName);
+        return moduleManager.GetModule(moduleName);
     }
 
     /// <summary>

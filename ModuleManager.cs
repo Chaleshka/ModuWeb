@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using ModuWeb.Events;
+using System.Collections.Concurrent;
 using System.Runtime.Loader;
 
 namespace ModuWeb;
@@ -19,7 +20,7 @@ public class ModuleManager
         }
     }
 
-    private readonly ConcurrentDictionary<string, (ModuleBase Module, AssemblyLoadContext Context)> _modules = new();
+    internal readonly ConcurrentDictionary<string, (ModuleBase Module, AssemblyLoadContext Context)> modules = new();
     private readonly ConcurrentDictionary<string, string> _modulesNameToPath = new();
 
     private readonly string _modulesDirectory;
@@ -27,6 +28,7 @@ public class ModuleManager
     private readonly string _workingDirectory;
     private readonly string _workingDependenciesDirectory;
     private readonly ModuleWatcher _watcher;
+    private readonly string[] _moduleOrder;
 
     /// <summary>
     /// Initializes the module manager and loads modules from the specified directory.
@@ -76,9 +78,9 @@ public class ModuleManager
 
 
     public ModuleBase? GetModule(string name)
-        => _modules.TryGetValue(name.ToLower(), out var module) ? module.Module : null;
+        => modules.TryGetValue(name.ToLower(), out var module) ? module.Module : null;
     public List<ModuleBase> GetModules()
-        => _modules.Values.Select(p => p.Module).ToList();
+        => modules.Values.Select(p => p.Module).ToList();
 
     /// <summary>
     /// Loads all available modules from the modules directory.
@@ -100,13 +102,11 @@ public class ModuleManager
     {
         string moduleName = Path.GetFileNameWithoutExtension(originalPath).ToLower();
 
-        if (_modules.ContainsKey(moduleName))
+        if (modules.ContainsKey(moduleName))
             return;
 
         try
         {
-
-
             CopyDependenciesToWorkingDirectory();
 
             var loadContext = new ModuleLoadContext(_workingDependenciesDirectory);
@@ -122,7 +122,7 @@ public class ModuleManager
 
             if (moduleType != null && Activator.CreateInstance(moduleType) is ModuleBase module)
             {
-                _modules[moduleName] = (module, loadContext);
+                modules[moduleName] = (module, loadContext);
                 _modulesNameToPath[moduleName] = originalPath;
                 await module.OnModuleLoad();
                 Logger.Info($"Module loaded: {moduleName}");
@@ -147,13 +147,14 @@ public class ModuleManager
     /// <param name="name">Name of the module.</param>
     internal async void UnloadModule(string name)
     {
-        if (!_modules.TryRemove(name, out var entry))
+        if (!modules.TryRemove(name, out var entry))
             return;
 
         WeakReference contextRef = new(entry.Context);
-        await entry.Module.OnModuleLoad();
+        await entry.Module.OnModuleUnload();
         entry.Context.Unload();
         Logger.Info($"Module unloaded: {name}");
+        Events.Events.ModuleUnloadedSafeEvent.Invoke(new ModuleUnloadedEventArgs(name, entry.Module, entry.Context ));
 
         await Task.Run(() =>
         {
