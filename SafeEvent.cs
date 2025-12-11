@@ -62,7 +62,7 @@ namespace ModuWeb
                 try { h.DynamicInvoke(args); }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"SafeEvent handler threw: {ex}");
+                    Logger.Error($"SafeEvent handler threw: {ex}");
                 }
             }
         }
