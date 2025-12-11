@@ -7,6 +7,13 @@ namespace ModuWeb;
 /// </summary>
 public abstract class ModuleBase
 {
+    private static ulong _moduleCounter = 0;
+    /// <summary>
+    /// Gets the name of module that will be used into core.
+    /// MUST be unique name.
+    /// </summary>
+    public virtual string ModuleName { get; } = $"Module{Interlocked.Increment(ref _moduleCounter)}";
+
     /// <summary>
     /// Gets the list of allowed CORS origins for this module.
     /// Override to specify custom allowed origins.
