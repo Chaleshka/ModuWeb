@@ -6,14 +6,6 @@
 /// </summary>
 public class Logger
 {
-    enum LogType
-    {
-        Info,
-        Warn,
-        Error,
-        None
-    }
-
     /// <summary>
     /// Logs an error message to the console in red color.
     /// </summary>
