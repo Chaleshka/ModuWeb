@@ -52,7 +52,7 @@ namespace ModuWeb
                 }
             }
 
-            Events.Events.RequestRecievedSafeEvent.Invoke(new RequestRecievedEventArgs(context, module, passed, originsPassed, headersPassed));
+            Events.Events.RequestReceivedSafeEvent.Invoke(new RequestRecievedEventArgs(context, module, passed, originsPassed, headersPassed));
             if (passed)
                 await _next(context);
         }
