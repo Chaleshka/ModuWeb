@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
+using ModuWeb.Events;
 
 namespace ModuWeb.ModuleMessenger
 {
@@ -28,22 +29,37 @@ namespace ModuWeb.ModuleMessenger
         /// <param name="msg">The message instance to send.</param>
         public static void SendMessage(ModuleMessage msg)
         {
+            bool handled = false;
+
             if (msg.RespondTo != 0)
             {
                 if (PendingResponses.TryRemove(msg.RespondTo, out var pending))
                 {
                     pending.TrySetResult(msg);
-                    return;
+                    handled = true;
                 }
             }
 
-            Handlers.TryGetValue(msg.To, out var handler);
-            if (handler != null && InspectHandler(handler))
+            if (!handled)
             {
-                handler.Invoke(msg);
-                return;
+                if (Handlers.TryGetValue(msg.To, out var handler) && InspectHandler(handler))
+                {
+                    handler.Invoke(msg);
+                    handled = true;
+                }
             }
-            Logger.Warn($"Module '{msg.To}' not found. Message from '{msg.From}' was dropped.");
+
+            CallEvent(msg);
+
+            if (!handled)
+            {
+                Logger.Warn($"Module '{msg.To}' not found. Message from '{msg.From}' was dropped.");
+            }
+        }
+
+        private static void CallEvent(ModuleMessage msg)
+        {  
+            Events.Events.ModuleMessageSentSafeEvent.Invoke(new ModuleMessageSentEventArgs(msg));
         }
 
         /// <summary>

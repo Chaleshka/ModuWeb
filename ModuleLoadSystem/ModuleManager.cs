@@ -128,7 +128,7 @@ public class ModuleManager
                 modules[moduleName] = (module, loadContext);
                 _modulesNameToPath[moduleName] = originalPath;
                 await module.OnModuleLoad();
-                Events.Events.ModuleLoadedSafeEvent.Invoke(moduleName, module, loadContext, originalPath);
+                Events.Events.ModuleLoadedSafeEvent.Invoke(new ModuleLoadedEventArgs(moduleName, module, assembly, loadContext, originalPath));
                 Logger.Info($"Module loaded: {moduleName}");
             }
         }

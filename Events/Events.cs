@@ -5,7 +5,7 @@
         internal static SafeEvent<Action<ModuleLoadedEventArgs>> ModuleLoadedSafeEvent = new();
         internal static SafeEvent<Action<ModuleUnloadedEventArgs>> ModuleUnloadedSafeEvent = new();
         internal static SafeEvent<Action<RequestRecievedEventArgs>> RequestReceivedSafeEvent = new();
-        internal static SafeEvent<Action<ModuleReloadedEventArgs>> ModuleReloadedSafeEvent = new();
+        internal static SafeEvent<Action<ModuleMessageSentEventArgs>> ModuleMessageSentSafeEvent = new();
 
 
         public static event Action<ModuleLoadedEventArgs> ModuleLoaded
@@ -20,16 +20,16 @@
             remove => ModuleUnloadedSafeEvent.RemoveHandler(value);
         }
 
-        public static event Action<ModuleReloadedEventArgs> ModuleReloaded
-        {
-            add => ModuleReloadedSafeEvent.AddHandler(value);
-            remove => ModuleReloadedSafeEvent.RemoveHandler(value);
-        }
-
         public static event Action<RequestRecievedEventArgs> RequestReceived
         {
             add => RequestReceivedSafeEvent.AddHandler(value);
             remove => RequestReceivedSafeEvent.RemoveHandler(value);
+        }
+
+        public static event Action<ModuleMessageSentEventArgs> ModuleMessageSent
+        {
+            add => ModuleMessageSentSafeEvent.AddHandler(value);
+            remove => ModuleMessageSentSafeEvent.RemoveHandler(value);
         }
     }
 }
