@@ -1,5 +1,7 @@
-﻿using System.Collections.Concurrent;
+﻿using ModuWeb.Events;
+using System.Collections.Concurrent;
 using System.Runtime.Loader;
+using ModuWeb.ModuleLoadSystem;
 
 namespace ModuWeb;
 
@@ -15,11 +17,14 @@ public class ModuleManager
         set
         {
             if (_instance == null)
+            {
                 _instance = value;
+                _instance.LoadAllModules();
+            }
         }
     }
 
-    private readonly ConcurrentDictionary<string, (ModuleBase Module, AssemblyLoadContext Context)> _modules = new();
+    internal readonly ConcurrentDictionary<string, (ModuleBase Module, AssemblyLoadContext Context)> modules = new();
     private readonly ConcurrentDictionary<string, string> _modulesNameToPath = new();
 
     private readonly string _modulesDirectory;
@@ -27,6 +32,7 @@ public class ModuleManager
     private readonly string _workingDirectory;
     private readonly string _workingDependenciesDirectory;
     private readonly ModuleWatcher _watcher;
+    private readonly string[] _moduleOrder;
 
     /// <summary>
     /// Initializes the module manager and loads modules from the specified directory.
@@ -40,9 +46,9 @@ public class ModuleManager
         _workingDependenciesDirectory = Path.Combine(_workingDirectory, "dependencies");
 
         PrepareDirectories();
-        LoadAllModules();
+        //LoadAllModules();
 
-        _watcher = new (_modulesDirectory);
+        _watcher = new(_modulesDirectory);
         return;
     }
         
@@ -76,9 +82,9 @@ public class ModuleManager
 
 
     public ModuleBase? GetModule(string name)
-        => _modules.TryGetValue(name.ToLower(), out var module) ? module.Module : null;
+        => modules.TryGetValue(name.ToLower(), out var module) ? module.Module : null;
     public List<ModuleBase> GetModules()
-        => _modules.Values.Select(p => p.Module).ToList();
+        => modules.Values.Select(p => p.Module).ToList();
 
     /// <summary>
     /// Loads all available modules from the modules directory.
@@ -96,23 +102,20 @@ public class ModuleManager
     /// </summary>
     /// <param name="originalPath">Original path to the .dll file.</param>
     /// <param name="twiceAccesError">Indicates retry after access conflict.</param>
-    internal async void TryLoadModule(string originalPath, bool twiceAccesError = false)
+    internal async Task TryLoadModule(string originalPath, bool twiceAccesError = false)
     {
         string moduleName = Path.GetFileNameWithoutExtension(originalPath).ToLower();
 
-        if (_modules.ContainsKey(moduleName))
+        if (modules.ContainsKey(moduleName))
             return;
 
         try
         {
-
-
             CopyDependenciesToWorkingDirectory();
 
             var loadContext = new ModuleLoadContext(_workingDependenciesDirectory);
 
             byte[] moduleBytes = File.ReadAllBytes(originalPath);
-            var context = new ModuleLoadContext(_workingDependenciesDirectory);
             using var stream = new MemoryStream(moduleBytes);
 
             var assembly = loadContext.LoadFromStream(stream);
@@ -122,9 +125,10 @@ public class ModuleManager
 
             if (moduleType != null && Activator.CreateInstance(moduleType) is ModuleBase module)
             {
-                _modules[moduleName] = (module, loadContext);
+                modules[moduleName] = (module, loadContext);
                 _modulesNameToPath[moduleName] = originalPath;
                 await module.OnModuleLoad();
+                Events.Events.ModuleLoadedSafeEvent.Invoke(moduleName, module, loadContext, originalPath);
                 Logger.Info($"Module loaded: {moduleName}");
             }
         }
@@ -134,7 +138,7 @@ public class ModuleManager
                 ex.Message.Contains("because it is being used by another process.") && !twiceAccesError)
             {
                 await Task.Delay(1000);
-                TryLoadModule(originalPath, true);
+                await TryLoadModule(originalPath, true);
             }
             else
                 Logger.Error($"Failed to load module from {originalPath}: {ex.Message}");
@@ -145,34 +149,36 @@ public class ModuleManager
     /// Unloads the specified module and its context.
     /// </summary>
     /// <param name="name">Name of the module.</param>
-    internal async void UnloadModule(string name)
+    internal async Task UnloadModule(string name)
     {
-        if (!_modules.TryRemove(name, out var entry))
+        if (!modules.TryRemove(name, out var entry))
             return;
 
         WeakReference contextRef = new(entry.Context);
-        await entry.Module.OnModuleLoad();
+        await entry.Module.OnModuleUnload();
         entry.Context.Unload();
         Logger.Info($"Module unloaded: {name}");
+        Events.Events.ModuleUnloadedSafeEvent.Invoke(new ModuleUnloadedEventArgs(name, entry.Module, entry.Context ));
+        _modulesNameToPath.TryRemove(name, out _);
 
-        await Task.Run(() =>
+        _ = Task.Run(() =>
         {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
-
-            if (contextRef.IsAlive)
-                Logger.Warn($"Module '{name}' AssemblyLoadContext still alive! Possible reference leak.");
-                
             try
             {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+
+
+                if (contextRef.IsAlive)
+                    Logger.Warn($"Module '{name}' AssemblyLoadContext still alive! Possible reference leak.");
+                
                 string path = Path.Combine(_workingDirectory, name + ".dll");
                 if (File.Exists(path)) File.Delete(path);
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to delete module file '{name}': {ex.Message}");
+                Logger.Error($"Background cleanup failed for '{name}': {ex.Message}");
             }
         });
     }
@@ -181,12 +187,12 @@ public class ModuleManager
     /// Reloads a module by path.
     /// </summary>
     /// <param name="path">Path to the module's .dll file.</param>
-    internal async void ReloadModule(string path)
+    internal async Task ReloadModule(string path)
     {
         var name = Path.GetFileNameWithoutExtension(path).ToLower();
-        UnloadModule(name);
+        await UnloadModule(name);
         await Task.Delay(200);
-        TryLoadModule(path);
+        await TryLoadModule(path);
     }
 
     private string CopyToWorkingDirectory(string sourcePath, string targetDirectory)

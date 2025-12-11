@@ -1,10 +1,19 @@
-﻿namespace ModuWeb;
+﻿using System.Reflection;
+
+namespace ModuWeb;
 
 /// <summary>
 /// Represents a base class for modules providing routing, CORS configuration, and lifecycle hooks.
 /// </summary>
 public abstract class ModuleBase
 {
+    private static ulong _moduleCounter = 0;
+    /// <summary>
+    /// Gets the name of module that will be used into core.
+    /// MUST be unique name.
+    /// </summary>
+    public virtual string ModuleName { get; } = $"Module{Interlocked.Increment(ref _moduleCounter)}";
+
     /// <summary>
     /// Gets the list of allowed CORS origins for this module.
     /// Override to specify custom allowed origins.
@@ -16,6 +25,12 @@ public abstract class ModuleBase
     /// Override to specify custom allowed headers.
     /// </summary>
     public virtual string[] WithHeadersCors { get; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets a value indicating will failed CORS requests be blocked for this module.
+    /// Override to specify will failed requests be blocked.
+    /// </summary>
+    public virtual bool BlockFailedCorsRequests { get; } = false;
 
     /// <summary>
     /// Internal collection of routes mapped for this module.
@@ -44,19 +59,27 @@ public abstract class ModuleBase
     /// <param name="method">The HTTP method of the request.</param>
     public virtual async Task Handle(HttpContext context, string modulePath, string method)
     {
-        if (!_routes.ContainsPath(modulePath))
+        try
         {
-            context.Response.StatusCode = 404;
-            return;
-        }
+            if (!_routes.ContainsPath(modulePath))
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
 
-        if (!_routes.ContainsMethod(modulePath, method))
+            if (!_routes.ContainsMethod(modulePath, method))
+            {
+                context.Response.StatusCode = 405;
+                return;
+            }
+
+            await _routes.GetHandler(modulePath, method).Invoke(context);
+
+        }
+        catch (Exception ex)
         {
-            context.Response.StatusCode = 405;
-            return;
+            Logger.Error("Module handler throw " + ex);
         }
-
-        await _routes.GetHandler(modulePath, method).Invoke(context);
     }
 
     /// <summary>
@@ -69,5 +92,5 @@ public abstract class ModuleBase
     /// Called when the module is unloaded.
     /// Override to perform cleanup tasks.
     /// </summary>
-    public virtual async Task OnModuleUnLoad() { }
+    public virtual async Task OnModuleUnload() { }
 }

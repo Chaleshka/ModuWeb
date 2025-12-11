@@ -2,7 +2,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
 
-namespace ModuWeb;
+namespace ModuWeb.ModuleLoadSystem;
 
 /// <summary>
 /// Custom <see cref="AssemblyLoadContext"/> for loading individual modules and resolving their dependencies.

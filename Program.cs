@@ -29,13 +29,14 @@ internal class Program
         });
 
         var app = builder.Build();
-        app.UseCors();
+        app.UseCors(); 
 
         var modulesPath = Path.Combine(builder.Environment.ContentRootPath, "modules");
 
         ModuleManager.Instance = new(modulesPath);
 
         Logger.Info($"Module base path: `{builder.Configuration["BaseApiPath"]}`");
+        app.UseMiddleware<ModuleCorsGuardMiddleware>();
         app.UseMiddleware<ModuleMiddleware>(builder.Configuration["BaseApiPath"]);
 
         app.Use(async (context, next) =>
