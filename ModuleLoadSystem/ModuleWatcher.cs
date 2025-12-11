@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
 
-namespace ModuWeb;
+namespace ModuWeb.ModuleLoadSystem;
 
 /// <summary>
 /// Watches the modules directory for changes to .dll files and triggers module reloads or unloads.
@@ -37,7 +37,7 @@ internal class ModuleWatcher : IDisposable
         _watcher.Deleted += OnDeleted;
         _watcher.Renamed += OnRenamed;
 
-        Task.Run(() => MonitorPendingChanges());
+        Task.Run(async () => await MonitorPendingChanges());
     }
 
     /// <summary>
@@ -60,7 +60,7 @@ internal class ModuleWatcher : IDisposable
                     {
                         if (IsFileReady(path) && HasFileBeenStable(path, StabilityDelay))
                         {
-                            ModuleManager.Instance.ReloadModule(path);
+                            await ModuleManager.Instance.ReloadModule(path);
                         }
                         else
                             _pendingChanges[path] = now;
