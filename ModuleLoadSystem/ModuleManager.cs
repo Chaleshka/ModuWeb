@@ -38,7 +38,7 @@ public class ModuleManager
     /// Initializes the module manager and loads modules from the specified directory.
     /// </summary>
     /// <param name="modulesDirectory">Directory containing the module .dll files.</param>
-    internal ModuleManager(string modulesDirectory)
+    internal ModuleManager(string modulesDirectory, string[] order)
     {
         _modulesDirectory = modulesDirectory;
         _dependenciesDirectory = Path.Combine(modulesDirectory, "dependencies");
@@ -47,6 +47,7 @@ public class ModuleManager
 
         PrepareDirectories();
         //LoadAllModules();
+        _moduleOrder = order;
 
         _watcher = new(_modulesDirectory);
         return;
@@ -91,7 +92,25 @@ public class ModuleManager
     /// </summary>
     internal void LoadAllModules()
     {
-        foreach (var file in Directory.GetFiles(_modulesDirectory, "*.dll", SearchOption.TopDirectoryOnly).OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
+        var allFiles = Directory.GetFiles(_modulesDirectory, "*.dll", SearchOption.TopDirectoryOnly);
+        var orderedFiles = new List<string>();
+        var otherFiles = new List<string>();
+
+        foreach (var moduleName in _moduleOrder)
+        {
+            var file = allFiles.FirstOrDefault(f =>
+                Path.GetFileNameWithoutExtension(f).Equals(moduleName, StringComparison.OrdinalIgnoreCase));
+            if (file != null)
+            {
+                orderedFiles.Add(file);
+            }
+        }
+
+        otherFiles.AddRange(allFiles.Where(f =>
+            !orderedFiles.Contains(f) &&
+            !_moduleOrder.Contains(Path.GetFileNameWithoutExtension(f), StringComparer.OrdinalIgnoreCase)));
+
+        foreach (var file in orderedFiles.Concat(otherFiles))
         {
             TryLoadModule(file);
         }
@@ -101,8 +120,8 @@ public class ModuleManager
     /// Attempts to load a module from the specified path.
     /// </summary>
     /// <param name="originalPath">Original path to the .dll file.</param>
-    /// <param name="twiceAccesError">Indicates retry after access conflict.</param>
-    internal async Task TryLoadModule(string originalPath, bool twiceAccesError = false)
+    /// <param name="twiceAccessError">Indicates retry after access conflict.</param>
+    internal async Task TryLoadModule(string originalPath, bool twiceAccessError = false)
     {
         string moduleName = Path.GetFileNameWithoutExtension(originalPath).ToLower();
 
@@ -135,7 +154,7 @@ public class ModuleManager
         catch (Exception ex)
         {
             if (ex.Message.Contains("The process cannot access the file") && 
-                ex.Message.Contains("because it is being used by another process.") && !twiceAccesError)
+                ex.Message.Contains("because it is being used by another process.") && !twiceAccessError)
             {
                 await Task.Delay(1000);
                 await TryLoadModule(originalPath, true);

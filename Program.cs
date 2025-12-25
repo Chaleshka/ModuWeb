@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using System.Text.Json.Serialization;
-using System.Text.Json;
 using Microsoft.AspNetCore.Http.Json;
+using ModuWeb.SessionSystem;
+using ModuWeb.Storage;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace ModuWeb;
@@ -13,6 +16,13 @@ internal class Program
         var builder = WebApplication.CreateSlimBuilder(args);
 
         builder.Services.AddSingleton<ICorsPolicyProvider, DynamicCorsPolicyProvider>();
+        builder.Services.AddSingleton<IStorageService>(provider =>
+        {
+            var dbPath = Path.Combine(builder.Environment.ContentRootPath, builder.Configuration["BaseDbPath"],
+                "storage.db");
+            return new LiteDbStorageService(dbPath);
+        });
+        builder.Services.AddSingleton<ISessionService, LiteDbSessionService>();
         builder.Services.AddCors();
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
@@ -33,7 +43,8 @@ internal class Program
 
         var modulesPath = Path.Combine(builder.Environment.ContentRootPath, "modules");
 
-        ModuleManager.Instance = new(modulesPath);
+        ModuleManager.Instance = new(modulesPath, 
+            builder.Configuration.GetSection("LoadOrder").Get<string[]>() ?? Array.Empty<string>());
 
         Logger.Info($"Module base path: `{builder.Configuration["BaseApiPath"]}`");
         app.UseMiddleware<ModuleCorsGuardMiddleware>();

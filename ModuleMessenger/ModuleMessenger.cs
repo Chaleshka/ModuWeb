@@ -42,7 +42,7 @@ namespace ModuWeb.ModuleMessenger
 
             if (!handled)
             {
-                if (Handlers.TryGetValue(msg.To, out var handler) && InspectHandler(handler))
+                if (Handlers.TryGetValue(msg.To.Split('.')[0], out var handler) && InspectHandler(handler))
                 {
                     handler.Invoke(msg);
                     handled = true;
