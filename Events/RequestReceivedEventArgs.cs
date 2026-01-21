@@ -1,12 +1,14 @@
 ﻿namespace ModuWeb.Events
 {
-    public class RequestRecievedEventArgs : EventArgs
+    public class RequestReceivedEventArgs : EventArgs
     {
-        public RequestRecievedEventArgs(HttpContext context, ModuleBase? targetModule, bool corsPassed, bool originsPassed = true, bool headersPassed = true)
+        public RequestReceivedEventArgs(HttpContext context, ModuleBase? targetModule, bool corsPassed, bool originsPassed = true, bool headersPassed = true)
         {
             Context = context;
             TargetModule = targetModule;
             CorsPassed = corsPassed;
+            OriginPassed = originsPassed;
+            HeaderPassed = headersPassed;
         }
 
         public HttpContext Context { get; }
