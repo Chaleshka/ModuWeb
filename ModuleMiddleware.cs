@@ -1,4 +1,4 @@
-﻿using ModuWeb.Extentions;
+﻿using ModuWeb.Extensions;
 
 namespace ModuWeb;
 
@@ -80,15 +80,20 @@ public class ModuleMiddleware
             var module = GetModuleFromUrl(context.Request.Path, out var modulePath);
             if (module != null)
             {
-                await module?.Handle(context, modulePath, context.Request.Method.ToUpper());
+                await module.Handle(context, modulePath, context.Request.Method.ToUpper());
                 return;
             }
 
             await _next(context);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
-            Logger.Error(ex);
+            Logger.Error($"Error processing request: {ex}");
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = 500;
+                await context.Response.WriteAsync("Internal server error");
+            }
         }
     }
 }
