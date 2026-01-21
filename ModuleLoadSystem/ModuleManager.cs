@@ -8,7 +8,7 @@ namespace ModuWeb;
 /// <summary>
 /// Manages dynamic loading, unloading, and reloading of modules from .dll files.
 /// </summary>
-public class ModuleManager
+internal class ModuleManager
 {
     private static ModuleManager _instance;
     public static ModuleManager Instance
@@ -229,7 +229,12 @@ public class ModuleManager
         {
             var fileName = Path.GetFileName(file);
             var destination = Path.Combine(_workingDependenciesDirectory, fileName);
-            File.Copy(file, destination, true);
+
+            var sourceTime = File.GetLastWriteTimeUtc(file);
+            var destTime = File.Exists(destination) ? File.GetLastWriteTimeUtc(destination) : DateTime.MinValue;
+
+            if (!File.Exists(destination) || sourceTime > destTime)
+                File.Copy(file, destination, true);
         }
     }
 }
