@@ -1,6 +1,6 @@
 ﻿namespace ModuWeb.SessionSystem
 {
-    public interface ISessionService
+    internal interface ISessionService
     {
         Task<T> GetAsync<T>(string sessionId, string key);
         Task SetAsync<T>(string sessionId, string key, T value);

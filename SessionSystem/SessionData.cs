@@ -2,7 +2,7 @@
 
 namespace ModuWeb.SessionSystem
 {
-    public class SessionData
+    internal class SessionData
     {
         [BsonId]
         public string Id { get; set; }

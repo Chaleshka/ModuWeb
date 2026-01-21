@@ -2,10 +2,11 @@
 using ModuWeb;
 using ModuWeb.Storage;
 using System.Text.Json;
+using ModuWeb.Extensions;
 
 namespace ModuWeb.SessionSystem
 {
-    public class LiteDbSessionService : ISessionService
+    internal class LiteDbSessionService : ISessionService
     {
         private readonly IStorageService _storage;
         private readonly TimeSpan _defaultTimeout = TimeSpan.FromMinutes(30);
@@ -28,7 +29,7 @@ namespace ModuWeb.SessionSystem
 
                 if (session.Data.TryGetValue(key, out var value))
                 {
-                    return JsonSerializer.Deserialize<T>(value.ToString());
+                    return JsonSerializer.Deserialize<T>(value.ToString(), JsonOptionExtension.Options);
                 }
                 return default;
             }
@@ -51,7 +52,7 @@ namespace ModuWeb.SessionSystem
                         CreatedAt = DateTime.UtcNow
                     };
 
-                session.Data[key] = value;
+                session.Data[key] = JsonSerializer.Serialize(value, JsonOptionExtension.Options);
                 session.LastAccessed = DateTime.UtcNow;
                 session.ExpiresAt = DateTime.UtcNow.Add(_defaultTimeout);
 
