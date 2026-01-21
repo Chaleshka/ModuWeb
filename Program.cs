@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using ModuWeb.Cors;
+using ModuWeb.Extensions;
 using ModuWeb.SessionSystem;
 using ModuWeb.Storage;
-using System.IO;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 
 namespace ModuWeb;
 
@@ -27,15 +27,15 @@ internal class Program
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
 
-        builder.Services.Configure<JsonOptions>(options =>
-        {
-            options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-            options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        builder.Services.Configure<JsonOptions>(options => options.JsonSerializerOptions());
 
-            options.SerializerOptions.TypeInfoResolver = JsonTypeInfoResolver.Combine(
-                options.SerializerOptions.TypeInfoResolver,
-                new DefaultJsonTypeInfoResolver()
-            );
+        builder.Services.Configure<FormOptions>(options =>
+        {
+            options.MultipartBodyLengthLimit = builder.Configuration.GetValue<int>("MaxRequestBodySize") * 1024 * 1024;
+        });
+        builder.Services.Configure<KestrelServerOptions>(options =>
+        {
+            options.Limits.MaxRequestBodySize = builder.Configuration.GetValue<int>("MaxRequestBodySize") * 1024 * 1024;
         });
 
         var app = builder.Build();
