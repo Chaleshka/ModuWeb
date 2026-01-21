@@ -107,7 +107,7 @@ public sealed class RouteDictionary
     /// </summary>
     /// <param name="path">The relative path.</param>
     /// <returns>An array of handlers, or <c>null</c> if path not found.</returns>
-    public Func<HttpContext, Task>[] Gethandlers(string path)
+    public Func<HttpContext, Task>[] GetHandlers(string path)
     {
         path = path.Trim('/');
 
