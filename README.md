@@ -151,8 +151,23 @@ Firstly create project:
 dotnet new classlib -n ModuleName
 cd ModuleName
 ```
+
 Then you need to add to dependencies ModuWeb.dll. <br />
-After that you can create your modules.
+**Important:** To use `HttpContext` and other ASP.NET Core types in your module, add a `FrameworkReference` to your `.csproj` file:
+
+```xml
+<ItemGroup>
+  <!-- Add this to get HttpContext and ASP.NET Core dependencies -->
+  <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  
+  <!-- Reference to ModuWeb.dll -->
+  <Reference Include="ModuWeb">
+    <HintPath>path/to/ModuWeb.dll</HintPath>
+  </Reference>
+</ItemGroup>
+```
+
+This way you don't need to manually add NuGet packages for ASP.NET Core dependencies.
 
 <br />
 
@@ -176,11 +191,11 @@ public class HelloWorldModule : ModuleBase
 
 - `Map(string path, string method, Func<HttpContext, Task> handler)` — maps a route.
 - `Handle(...)` — receives and routes the request.
-- `WithOriginsCors`, `WithHeadersCors` — specify CORS policies.
+- `WithOriginsCors`, `WithHeadersCors`, `BlockFailedCorsRequests` — specify CORS policies.
+- `ModuleName` — name of module that will used for some system tools.
 - `OnModuleLoad()` — optional initialization logic.
 - `OnModuleUnLoad()` — optional cleanup logic.
 
-<br />
 <br />
 
 You can also see the examples in [examples](/examples).
