@@ -2,7 +2,7 @@
 
 namespace ModuWeb.Storage
 {
-    public class LiteDbStorageService : IStorageService
+    internal class LiteDbStorageService : IStorageService
     {
         private readonly ILiteDatabase _db;
 

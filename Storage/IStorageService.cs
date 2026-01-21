@@ -1,6 +1,6 @@
 ﻿namespace ModuWeb.Storage
 {
-    public interface IStorageService
+    internal interface IStorageService
     {
         Task<T> GetAsync<T>(string collection, string id);
         Task<IEnumerable<T>> GetAllAsync<T>(string collection);
