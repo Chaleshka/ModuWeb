@@ -8,11 +8,15 @@ Each module is self-contained and can expose custom HTTP routes, CORS policies, 
 
 ## 🧩 Features
 
-- 🔄 **Hot-reloadable modules** – automatically reloads modules when their `.dll` files are updated or replaced.
-- 📁 **File system watching** – monitors the `modules/` folder for `.dll` changes using `FileSystemWatcher`.
-- 🌐 **Per-module CORS** – modules define their own CORS rules.
-- 🔀 **Custom middleware routing** – routes HTTP requests to appropriate modules based on URL.
-- 🧾 **Built-in logger** – simple color-coded console logger for info, warnings, and errors.
+- 🔄 **Hot-reloadable modules** – automatically reloads modules when their `.dll` files are updated or replaced.  
+- 📁 **File system watching** – monitors the `modules/` folder for `.dll` changes using `FileSystemWatcher`.  
+- 🌐 **Per-module CORS** – modules define their own CORS rules.  
+- 🔀 **Custom middleware routing** – routes HTTP requests to appropriate modules based on URL.  
+- 💾 **Session support** – every module can create and/or use session storage.  
+- ⚡ **Event system** – allows modules to subscribe to and react to system events.  
+- 💬 **Message system** – enables modules to communicate with each other.  
+- 🧾 **Built-in logger** – simple color-coded console logger for info, warnings, and errors.  
+
 
 ---
 
@@ -21,34 +25,58 @@ Each module is self-contained and can expose custom HTTP routes, CORS policies, 
 ```
 ModuWeb/
 │
-├── Json/
-│   ├── CustomJsonSerializer.cs
-│   └── CustomJsonDeserializer.cs
 ├── Properties/
-│   └── launchSettings.json      # Startup settings for dev mode
-├── examples/                    # Examples modules
-├── Extentions/
-│   ├── ArrayExtention.cs        # Little extention for array
-│   ├── HttpRequestExtention.cs  # Extention for get request data (from query string or json body)
-│   └── StringExtention.cs       # Little extention for string.Replace(old, new, count)
-├── DynamicCorsPolicy.cs         # CORS policy provider per module
-├── LICENSE.txt                  # License for this project
-├── Logger.cs                    # Static logger with color output
-├── ModuleBase.cs                # Base class for all modules
-├── ModuleLoadContext.cs         # Custom AssemblyLoadContext
-├── ModuleManager.cs             # Loads/unloads modules and handles lifecycle
-├── ModuleMiddleware.cs          # Dispatches requests to the correct module
-├── ModuleWatcher.cs             # Watches for module file changes
-├── Program.cs                   # Application entry point
-├── RouteDictionary.cs           # Path + method → handler registry
-└── appsettings.json             # Default appsettings
+│   └── launchSettings.json                 # Startup settings for dev mode
+│
+├── Events/
+│   ├── Events.cs                           # Contains all events
+│   ├── ModuleLoadedEventArgs.cs            # Args for event about loaded module
+│   ├── ModuleMessageSentEventArgs.cs       # Args for event about sent message
+│   ├── ModuleUnloadedEventArgs.cs          # Args for event about unloaded module
+│   ├── RequestRecievedEventArgs.cs         # Args for event about recieved http request
+│   └── SafeEvent.cs                        # Base and safe class for events
+│
+├── examples/                               # Examples modules
+│
+├── Extensions/
+│   ├── ArrayExtention.cs                   # Little extention for array
+│   ├── HttpRequestExtention.cs             # Extention for get request data (from query string or json body)
+│   └── StringExtention.cs                  # Little extention for string.Replace(old, new, count)
+│
+├── ModuleLoadSystem/
+│   ├── ModuleLoadContext.cs                # Custom AssemblyLoadContext
+│   ├── ModuleManager.cs                    # Loads/unloads modules and handles lifecycle
+│   └── ModuleWatcher.cs                    # Watches for module file changes
+│
+├── ModuleMessenger/
+│   ├── ModuleMessage.cs                    # Module message that every moudle can create and receive
+│   └── ModuleMessenger.cs                  # System handler for module messages
+│
+├── SessionSystem/
+│   ├── ISessionService.cs                  # Interface of session service
+│   ├── LiteDbSessionService.cs             # Session service for create and working with sessions
+│   └── SessionData.cs                      # Data that store into database
+│
+├── Storage/
+│   ├── IStorageService.cs                  # Interface of storage service
+│   └── LiteDbStorageService.cs             # Data that store into database
+│
+├── appsettings.json                        # Default appsettings
+├── DynamicCorsPolicyProvider.cs            # CORS policy provider per module
+├── LICENSE.txt                             # License for this project
+├── Logger.cs                               # Static logger with color output
+├── ModuleBase.cs                           # Base class for all modules
+├── ModuleCorsGuardMiddleware               # Middleware for handling CORS per module
+├── Program.cs                              # Application entry point
+├── QueryParser.cs                          # Tool for parse args from query
+└── RouteDictionary.cs                      # Path + method → handler registry
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-### To run the project, you need to make sure that you have it installed .NET Runtime (Microsoft.AspNetCore.App) or SDK v9.0.2+.
+### To run the project, make sure you have the .NET Runtime (Microsoft.AspNetCore.App) or SDK version 9.0.2 or higher installed.
 
 #### How can you check if SDK is installed?
 
@@ -155,14 +183,14 @@ public class HelloWorldModule : ModuleBase
 <br />
 <br />
 
-You can also see the examples in [examples](https://github.com/Chaleshka/ModuWeb/tree/main/examples).
+You can also see the examples in [examples](/examples).
 
 ---
 
 ## 📌 Notes
 
 - Dependencies should be placed in `modules/dependencies/`. They will be copied automatically.
-- Modules are loads into memory. Dependencies only as 
+- Modules are loaded into memory. Dependencies only as 
 - A failed module load is logged but does not crash the host.
 - The middleware checks the base API path (from configuration) and maps requests accordingly.
 - Empty string into path in Map will mean base url with some method.
