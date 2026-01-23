@@ -45,10 +45,13 @@ public class ModuleMiddleware
     public ModuleBase? GetModuleFromUrl(string? url, out string modulePath)
     {
         modulePath = "";
-        if (url == null)
-            return null;
+        if (string.IsNullOrEmpty(url) || url == "/")
+            return moduleManager.GetModule("index");
 
         url = url?.Trim('/');
+
+        if (url.StartsWith("index"))
+            return moduleManager.GetModule("index");
         if (!url.StartsWith(_basePath))
             return null;
 

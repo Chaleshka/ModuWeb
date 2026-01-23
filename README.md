@@ -196,6 +196,9 @@ public class HelloWorldModule : ModuleBase
 - `OnModuleLoad()` — optional initialization logic.
 - `OnModuleUnLoad()` — optional cleanup logic.
 
+Module files may have unique names:
+    - `index.dll` — special module name used to handle the main page (`/` or `/index`).
+
 <br />
 
 You can also see the examples in [examples](/examples).
