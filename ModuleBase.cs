@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+using System.Reflection;
+using ModuWeb.ViewEngine;
 
 namespace ModuWeb;
 
@@ -9,26 +10,26 @@ public abstract class ModuleBase
 {
     private static ulong _moduleCounter = 0;
     /// <summary>
-    /// Gets the name of module that will be used into core.
+    /// Gets the name of module that will be used into core. <br/>
     /// MUST be unique name.
     /// </summary>
     public virtual string ModuleName { get; } = $"Module{Interlocked.Increment(ref _moduleCounter)}";
 
     /// <summary>
-    /// Gets the list of allowed CORS origins for this module.
+    /// Gets the list of allowed CORS origins for this module. <br/>
     /// Override to specify custom allowed origins.
     /// </summary>
     public virtual string[] WithOriginsCors { get; } = Array.Empty<string>();
 
     /// <summary>
-    /// Gets the list of allowed CORS headers for this module.
+    /// Gets the list of allowed CORS headers for this module. <br/>
     /// Override to specify custom allowed headers.
     /// </summary>
     public virtual string[] WithHeadersCors { get; } = Array.Empty<string>();
 
     /// <summary>
-    /// Gets a value indicating will failed CORS requests be blocked for this module.
-    /// Override to specify will failed requests be blocked.
+    /// Gets a value indicating failed CORS requests be blocked for this module. <br/>
+    /// Override to specify failed requests be blocked.
     /// </summary>
     public virtual bool BlockFailedCorsRequests { get; } = false;
 
@@ -39,7 +40,7 @@ public abstract class ModuleBase
     protected readonly RouteDictionary _routes = new();
     
     /// <summary>
-    /// Maps a HTTP method and path to a request handler for this module.
+    /// Maps HTTP method and path to a request handler for this module.
     /// </summary>
     /// <param name="path">Relative route path (leading/trailing slashes are trimmed).</param>
     /// <param name="method">HTTP method (e.g., GET, POST).</param>
@@ -51,7 +52,7 @@ public abstract class ModuleBase
     }
 
     /// <summary>
-    /// Handles an incoming HTTP request by routing it to the appropriate handler.
+    /// Handles an incoming HTTP request by routing it to the appropriate handler. <br/>
     /// Returns 404 if route not found or 405 if method not allowed.
     /// </summary>
     /// <param name="context">The current HTTP context.</param>
@@ -83,13 +84,13 @@ public abstract class ModuleBase
     }
 
     /// <summary>
-    /// Called when the module is loaded.
+    /// Called when the module is loaded. <br/>
     /// Override to perform initialization tasks.
     /// </summary>
     public virtual async Task OnModuleLoad() { }
 
     /// <summary>
-    /// Called when the module is unloaded.
+    /// Called when the module is unloaded. <br/>
     /// Override to perform cleanup tasks.
     /// </summary>
     public virtual async Task OnModuleUnload() { }
