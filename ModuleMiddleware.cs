@@ -1,4 +1,4 @@
-﻿using ModuWeb.Extensions;
+using ModuWeb.Extensions;
 
 namespace ModuWeb;
 
@@ -79,10 +79,20 @@ public class ModuleMiddleware
     {
         try
         {
-            Logger.Info($"Request {context.Request.Method.ToUpper()} {context.Request.Path}");
-            var module = GetModuleFromUrl(context.Request.Path, out var modulePath);
+            var path = context.Request.Path;
+            var remote = context.Connection.RemoteIpAddress?.ToString() ?? "?";
+            var port = context.Connection.RemotePort;
+            Logger.Info($"Request {context.Request.Method.ToUpper()} {path} from {remote}:{port}");
+
+            var module = GetModuleFromUrl(path, out var modulePath);
             if (module != null)
             {
+                if (modulePath.Length == 0 && path.HasValue && !path.Value!.EndsWith('/'))
+                {
+                    var redirect = path.Value + "/" + context.Request.QueryString;
+                    context.Response.Redirect(redirect, permanent: false);
+                    return;
+                }
                 await module.Handle(context, modulePath, context.Request.Method.ToUpper());
                 return;
             }
