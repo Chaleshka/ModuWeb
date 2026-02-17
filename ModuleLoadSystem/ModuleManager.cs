@@ -84,6 +84,15 @@ internal class ModuleManager
 
     public ModuleBase? GetModule(string name)
         => modules.TryGetValue(name.ToLower(), out var module) ? module.Module : null;
+    public string? GetModuleName(ModuleBase module)
+    {
+        foreach (var pair in modules)
+        {
+            if (pair.Value.Module == module)
+                return pair.Key;
+        }
+        return null;
+    }
     public List<ModuleBase> GetModules()
         => modules.Values.Select(p => p.Module).ToList();
 
