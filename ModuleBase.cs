@@ -1,4 +1,3 @@
-using System.Reflection;
 using ModuWeb.ViewEngine;
 
 namespace ModuWeb;
@@ -94,4 +93,28 @@ public abstract class ModuleBase
     /// Override to perform cleanup tasks.
     /// </summary>
     public virtual async Task OnModuleUnload() { }
+
+    /// <summary>
+    /// Registers Razor views for this module using the provided view engine. <br/>
+    /// Override in derived modules to register embedded .cshtml resources.
+    /// </summary>
+    /// <param name="viewEngine">The module view engine instance.</param>
+    public virtual void RegisterViews(IModuleViewEngine viewEngine) { }
+
+    /// <summary>
+    /// Provides initial view data for Razor views rendered by this module. <br/>
+    /// Override to supply common values like base paths, locale, or settings.
+    /// </summary>
+    /// <param name="context">The current HTTP context.</param>
+    /// <returns>A dictionary of initial view data.</returns>
+    protected virtual Dictionary<string, object> GetInitialViewData(HttpContext context)
+        => new();
+
+    /// <summary>
+    /// Public method to retrieve initial view data for use by extension methods.
+    /// </summary>
+    /// <param name="context">The current HTTP context.</param>
+    /// <returns>A dictionary of initial view data.</returns>
+    internal Dictionary<string, object> GetInitialViewDataForExtension(HttpContext context)
+        => GetInitialViewData(context);
 }

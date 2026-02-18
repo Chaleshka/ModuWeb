@@ -6,6 +6,7 @@ using ModuWeb.Cors;
 using ModuWeb.Extensions;
 using ModuWeb.SessionSystem;
 using ModuWeb.Storage;
+using ModuWeb.ViewEngine;
 
 namespace ModuWeb;
 
@@ -23,6 +24,7 @@ internal class Program
             return new LiteDbStorageService(dbPath);
         });
         builder.Services.AddSingleton<ISessionService, LiteDbSessionService>();
+        builder.Services.AddSingleton<IModuleViewEngine, ModuleViewEngine>();
         builder.Services.AddCors();
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
@@ -43,10 +45,11 @@ internal class Program
 
         var modulesPath = Path.Combine(builder.Environment.ContentRootPath, "modules");
 
-        ModuleManager.Instance = new(modulesPath, 
-            builder.Configuration.GetSection("LoadOrder").Get<string[]>() ?? Array.Empty<string>());
+        ModuleManager.Instance = new(modulesPath,
+            builder.Configuration.GetSection("LoadOrder").Get<string[]>() ?? Array.Empty<string>(), app.Services);
 
         Logger.Info($"Module base path: `{builder.Configuration["BaseApiPath"]}`");
+        app.UseStaticFiles();
         app.UseMiddleware<ModuleCorsGuardMiddleware>();
         app.UseMiddleware<ModuleMiddleware>(builder.Configuration["BaseApiPath"]);
 

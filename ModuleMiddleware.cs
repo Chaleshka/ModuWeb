@@ -87,6 +87,8 @@ public class ModuleMiddleware
             var module = GetModuleFromUrl(path, out var modulePath);
             if (module != null)
             {
+                context.Items["ModuWeb.CurrentModule"] = module;
+
                 if (modulePath.Length == 0 && path.HasValue && !path.Value!.EndsWith('/'))
                 {
                     var redirect = path.Value + "/" + context.Request.QueryString;

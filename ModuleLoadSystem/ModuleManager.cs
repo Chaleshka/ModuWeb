@@ -1,7 +1,8 @@
-﻿using ModuWeb.Events;
 using System.Collections.Concurrent;
 using System.Runtime.Loader;
+using ModuWeb.Events;
 using ModuWeb.ModuleLoadSystem;
+using ModuWeb.ViewEngine;
 
 namespace ModuWeb;
 
@@ -33,12 +34,15 @@ internal class ModuleManager
     private readonly string _workingDependenciesDirectory;
     private readonly ModuleWatcher _watcher;
     private readonly string[] _moduleOrder;
+    private readonly IServiceProvider? _serviceProvider;
 
     /// <summary>
     /// Initializes the module manager and loads modules from the specified directory.
     /// </summary>
     /// <param name="modulesDirectory">Directory containing the module .dll files.</param>
-    internal ModuleManager(string modulesDirectory, string[] order)
+    /// <param name="order">Explicit load order for modules.</param>
+    /// <param name="serviceProvider">Root service provider of the host application.</param>
+    internal ModuleManager(string modulesDirectory, string[] order, IServiceProvider? serviceProvider)
     {
         _modulesDirectory = modulesDirectory;
         _dependenciesDirectory = Path.Combine(modulesDirectory, "dependencies");
@@ -46,8 +50,8 @@ internal class ModuleManager
         _workingDependenciesDirectory = Path.Combine(_workingDirectory, "dependencies");
 
         PrepareDirectories();
-        //LoadAllModules();
         _moduleOrder = order;
+        _serviceProvider = serviceProvider;
 
         _watcher = new(_modulesDirectory);
         return;
@@ -156,6 +160,17 @@ internal class ModuleManager
                 modules[moduleName] = (module, loadContext);
                 _modulesNameToPath[moduleName] = originalPath;
                 await module.OnModuleLoad();
+
+                if (_serviceProvider is not null)
+                {
+                    var viewEngine = _serviceProvider.GetService<IModuleViewEngine>();
+                    if (viewEngine is not null)
+                    {
+                        viewEngine.RegisterModuleViews(moduleName, assembly);
+                        module.RegisterViews(viewEngine);
+                    }
+                }
+
                 Events.Events.ModuleLoadedSafeEvent.Invoke(new ModuleLoadedEventArgs(moduleName, module, assembly, loadContext, originalPath));
                 Logger.Info($"Module loaded: {moduleName}");
             }
