@@ -1,4 +1,4 @@
-﻿
+
 # ModuWeb
 
 **ModuWeb** is a .NET web application that supports dynamic runtime loading, reloading, and unloading of external modules (`.dll` files). 
@@ -16,6 +16,8 @@ Each module is self-contained and can expose custom HTTP routes, CORS policies, 
 - ⚡ **Event system** – allows modules to subscribe to and react to system events.  
 - 💬 **Message system** – enables modules to communicate with each other.  
 - 🧾 **Built-in logger** – simple color-coded console logger for info, warnings, and errors.  
+- 🖼️ **Razor view engine** – runtime Razor compilation via RazorLight for HTML pages with models.  
+- 📡 **Server-Sent Events (SSE)** – built-in support for real-time server-to-client streaming with a fluent Razor helper.  
 
 
 ---
@@ -33,15 +35,24 @@ ModuWeb/
 │   ├── ModuleLoadedEventArgs.cs            # Args for event about loaded module
 │   ├── ModuleMessageSentEventArgs.cs       # Args for event about sent message
 │   ├── ModuleUnloadedEventArgs.cs          # Args for event about unloaded module
-│   ├── RequestRecievedEventArgs.cs         # Args for event about recieved http request
+│   ├── RequestReceivedEventArgs.cs         # Args for event about received http request
 │   └── SafeEvent.cs                        # Base and safe class for events
 │
 ├── examples/                               # Examples modules
 │
+├── Cors/
+│   ├── DynamicCorsPolicyProvider.cs        # CORS policy provider per module
+│   ├── Headers.cs                          # CORS headers constants
+│   └── ModuleCorsGuardMiddleware.cs        # Middleware for handling CORS per module
+│
 ├── Extensions/
-│   ├── ArrayExtention.cs                   # Little extention for array
-│   ├── HttpRequestExtention.cs             # Extention for get request data (from query string or json body)
-│   └── StringExtention.cs                  # Little extention for string.Replace(old, new, count)
+│   ├── ArrayExtension.cs                   # Little extension for array
+│   ├── HttpRequestExtension.cs             # Extension for get request data (from query string or json body)
+│   ├── HttpResponseExtension.cs            # Extensions for Razor page rendering and SSE streaming
+│   ├── JsonOptionExtension.cs              # JSON serializer options (camelCase, null handling)
+│   ├── SessionExtensions.cs                # Session helper extensions for HttpContext
+│   ├── SseHtmlHelper.cs                    # Fluent SSE helper for Razor views (Sse.Stream(...).Bind(...))
+│   └── StringExtension.cs                  # Little extension for string.Replace(old, new, count)
 │
 ├── ModuleLoadSystem/
 │   ├── ModuleLoadContext.cs                # Custom AssemblyLoadContext
@@ -61,12 +72,15 @@ ModuWeb/
 │   ├── IStorageService.cs                  # Interface of storage service
 │   └── LiteDbStorageService.cs             # Data that store into database
 │
+├── ViewEngine/
+│   ├── IModuleViewEngine.cs                # Interface for module view engine
+│   └── ModuleViewEngine.cs                 # RazorLight-based runtime Razor compilation
+│
 ├── appsettings.json                        # Default appsettings
-├── DynamicCorsPolicyProvider.cs            # CORS policy provider per module
 ├── LICENSE.txt                             # License for this project
 ├── Logger.cs                               # Static logger with color output
 ├── ModuleBase.cs                           # Base class for all modules
-├── ModuleCorsGuardMiddleware               # Middleware for handling CORS per module
+├── ModuleMiddleware.cs                     # Middleware for routing requests to modules
 ├── Program.cs                              # Application entry point
 ├── QueryParser.cs                          # Tool for parse args from query
 └── RouteDictionary.cs                      # Path + method → handler registry
@@ -202,6 +216,174 @@ Module files may have unique names:
 <br />
 
 You can also see the examples in [examples](/examples).
+
+---
+
+## 🖼️ Razor Views
+
+Modules can render HTML pages using Razor (`.cshtml`) templates via RazorLight. Views are embedded as resources in the module DLL.
+
+### Setup
+
+1. Mark `.cshtml` files as **Embedded Resource** in your `.csproj`:
+
+```xml
+<ItemGroup>
+  <EmbeddedResource Include="Views\**\*.cshtml" />
+</ItemGroup>
+```
+
+Views are registered automatically when the module is loaded — no extra code needed.
+
+2. Render a page from a handler:
+
+```csharp
+private async Task PageHandler(HttpContext context)
+{
+    var model = new { Title = "Hello", Message = "World" };
+    await context.Response.WriteRazorPageAsync("Views/Index.cshtml", model);
+}
+```
+
+3. Access model data in `.cshtml`:
+
+```html
+<h1>@Model.Title</h1>
+<p>@Model.Message</p>
+```
+
+### `GetInitialViewData` — shared data for all views
+
+Override `GetInitialViewData` in your module to provide common data that will be automatically available in every Razor view — without passing it manually each time. Useful for base paths, locale, user info, app settings, etc.
+
+```csharp
+protected override Dictionary<string, object> GetInitialViewData(HttpContext context) => new()
+{
+    int i = 0;
+    ["Title"] = $"Some title #" + (++i).ToString(),
+    ["Lang"] = context.Request.Headers["Accept-Language"].FirstOrDefault() ?? "en",
+    ["Year"] = DateTime.Now.Year
+};
+```
+
+These values are merged into the model and accessible in `.cshtml` as `@Model.BasePath`, `@Model.Lang`, etc.:
+
+```html
+<html lang="@Model.Lang">
+<head>
+    <title>@Model.Title</title>
+</head>
+<body>
+    <footer>© @Model.Year</footer>
+</body>
+</html>
+```
+
+This is called automatically by `WriteRazorPageAsync` when no explicit `viewData` parameter is passed. If you pass `viewData` manually, `GetInitialViewData` is skipped.
+
+---
+
+## 📡 Server-Sent Events (SSE)
+
+ModuWeb has built-in SSE support on both sides: a **server-side** extension for streaming data and a **client-side Razor helper** for receiving it — no jQuery or manual JavaScript needed.
+
+### Server side — `WriteSseAsync`
+
+In your module handler, use `WriteSseAsync` to push data to the client on a fixed interval:
+
+```csharp
+using ModuWeb.Extensions;
+
+// Simple (synchronous generator)
+private async Task StreamHandler(HttpContext context)
+{
+    await context.Response.WriteSseAsync(() => new
+    {
+        time = DateTime.Now.ToString("HH:mm:ss"),
+        date = DateTime.Now.ToString("yyyy-MM-dd")
+    }, intervalMs: 5000);
+}
+
+// Async generator (for DB queries, HTTP calls, etc.)
+private async Task StreamHandler(HttpContext context)
+{
+    await context.Response.WriteSseAsync(async ct =>
+    {
+        var data = await GetSensorDataAsync(ct);
+        return new { temperature = data.Temp, humidity = data.Hum };
+    }, intervalMs: 2000);
+}
+```
+
+The extension handles `Content-Type`, `Cache-Control`, flushing, JSON serialization, and client disconnect automatically.
+
+You can also send named events:
+
+```csharp
+await context.Response.WriteSseAsync(() => payload, intervalMs: 1000, eventName: "sensor-update");
+```
+
+### Client side — `Sse.Stream()` Razor helper
+
+Instead of writing JavaScript manually, use the fluent `Sse` helper directly in `.cshtml`:
+
+```html
+@using ModuWeb.Extensions
+
+<p id="serverTime">Loading...</p>
+<p id="lastUpdate"></p>
+
+@(Sse.Stream("time-stream")
+    .Bind("#serverTime", "time")
+    .Bind("#lastUpdate", "date", "Updated: {0}")
+    .Render())
+```
+
+This generates all the `EventSource` JavaScript automatically. No jQuery, no `<script>` blocks.
+
+#### Available methods
+
+| Method | Description |
+|--------|-------------|
+| `.Bind("#id", "field")` | Sets element's `textContent` to the JSON field value |
+| `.Bind("#id", "field", "Format: {0}")` | Same, with a format string |
+| `.OnMessage("js code")` | Raw JS executed on each message (has access to `data`) |
+| `.OnOpen("js code")` | Raw JS executed when connection opens |
+| `.OnError("js code")` | Raw JS executed on connection error |
+| `.On("eventName", e => e.Bind(...))` | Bindings for a named SSE event |
+
+#### Full example
+
+```html
+@using ModuWeb.Extensions
+
+@(Sse.Stream("time-stream")
+    .Bind("#serverTime", "time")
+    .Bind("#lastUpdate", "datetime", "Updated: {0}")
+    .OnOpen("document.getElementById('status').textContent='Connected'")
+    .OnError("document.getElementById('status').textContent='Reconnecting...'")
+    .Render())
+```
+
+> **Note:** Always wrap in `@(...)` for multi-line expressions. `Render()` returns raw HTML that won't be escaped by Razor.
+
+### Using jQuery instead of SSE
+
+SSE is optional. ModuWeb ships with jQuery (`/jquery-4.0.0.js`) available for all modules. You can use classic polling with `$.get` / `$.ajax` if you prefer — or combine both approaches in the same project:
+
+```html
+<script src="/jquery-4.0.0.js"></script>
+<script>
+    function updateTime() {
+        $.get('time').done(function (data) {
+            $('#serverTime').text(data.time);
+            $('#lastUpdate').text('Updated: ' + data.datetime);
+        });
+    }
+    setInterval(updateTime, 1000);
+    updateTime();
+</script>
+```
 
 ---
 
