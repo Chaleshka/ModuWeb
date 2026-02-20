@@ -61,22 +61,35 @@ jobs:
           -r ${{ matrix.rid }}
           --self-contained true
           -p:PublishAot=${{ matrix.aot }}
+          -p:DebugType=none
+          -p:DebugSymbols=false
           -o ./publish
+
+      - name: Clean publish output (Linux)
+        if: runner.os == 'Linux'
+        run: find ./publish -name "*.pdb" -o -name "*.xml" -o -name "*.deps.json" | xargs rm -f
+
+      - name: Clean publish output (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Get-ChildItem ./publish -Include *.pdb,*.xml,*.deps.json -Recurse | Remove-Item -Force
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path ./publish/* -DestinationPath "ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.zip"
+        run: Compress-Archive -Path ./publish/* -DestinationPath "./output/ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.zip"
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar'
-        run: tar -czf "ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.tar.gz" -C ./publish .
+        run: |
+          mkdir -p ./output
+          tar -czf "./output/ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.tar.gz" -C ./publish .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ModuWeb-${{ matrix.rid }}
-          path: ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.*
+          path: ./output/*
 
   release:
     needs: build
@@ -94,6 +107,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
+          merge-multiple: true
 
       - name: Generate changelog
         id: changelog
@@ -119,7 +133,7 @@ jobs:
       - name: Create tag
         run: |
           git tag "v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          git push origin "${{ inputs.version }}"
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2
@@ -129,4 +143,4 @@ jobs:
           body: ${{ steps.changelog.outputs.body }}
           draft: true
           prerelease: ${{ inputs.prerelease }}
-          files: ./artifacts/**/*
+          files: ./artifacts/*

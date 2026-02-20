@@ -28,6 +28,8 @@ internal class Program
         builder.Services.AddCors();
         if (builder.Configuration.GetValue<bool>("UseHttps"))
             builder.WebHost.UseKestrelHttpsConfiguration();
+        else
+            builder.Configuration["Kestrel:Endpoints:Https:Url"] = null;
 
         builder.Services.Configure<JsonOptions>(options => options.JsonSerializerOptions());
 
