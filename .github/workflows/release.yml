@@ -1,0 +1,143 @@
+name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number (e.g. 1.1.0) — tag will be created as v1.1.0"
+        required: true
+        type: string
+      release_title:
+        description: "Release title (e.g. SSE support, Razor views)"
+        required: true
+        type: string
+      release_description:
+        description: "Release description (commit list will be appended automatically)"
+        required: false
+        type: string
+        default: ""
+      prerelease:
+        description: "Mark as pre-release (beta/test)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            aot: true
+            archive: zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            aot: true
+            archive: tar
+          - os: ubuntu-latest
+            rid: linux-arm64
+            aot: false
+            archive: tar
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Install cross-compilation tools (linux-arm64)
+        if: matrix.rid == 'linux-arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo bash -c 'cat > /etc/apt/sources.list.d/arm64.list << EOF
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted universe multiverse
+          EOF'
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Publish
+        run: >
+          dotnet publish ModuWeb.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishAot=${{ matrix.aot }}
+          -o ./publish
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path ./publish/* -DestinationPath "ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.zip"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar'
+        run: tar -czf "ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.tar.gz" -C ./publish .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModuWeb-${{ matrix.rid }}
+          path: ModuWeb-${{ matrix.rid }}-v${{ inputs.version }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --oneline --no-decorate)
+          else
+            COMMITS=$(git log --oneline --no-decorate "${PREV_TAG}..HEAD")
+          fi
+
+          BODY="${{ inputs.release_description }}"
+          if [ -n "$BODY" ]; then
+            BODY="${BODY}"$'\n\n'
+          fi
+          BODY="${BODY}## Commits"$'\n'"${COMMITS}"
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "body<<$EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.version }}"
+          name: "${{ inputs.release_title }}"
+          body: ${{ steps.changelog.outputs.body }}
+          draft: true
+          prerelease: ${{ inputs.prerelease }}
+          files: ./artifacts/**/*
