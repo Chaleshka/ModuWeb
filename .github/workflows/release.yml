@@ -25,6 +25,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -35,9 +36,9 @@ jobs:
             rid: linux-x64
             aot: true
             archive: tar
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm64
             rid: linux-arm64
-            aot: false
+            aot: true
             archive: tar
 
     runs-on: ${{ matrix.os }}
@@ -52,18 +53,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
-
-      - name: Install cross-compilation tools (linux-arm64)
-        if: matrix.rid == 'linux-arm64'
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo bash -c 'cat > /etc/apt/sources.list.d/arm64.list << EOF
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted universe multiverse
-          EOF'
-          sudo sed -i 's/^deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Publish
         run: >
