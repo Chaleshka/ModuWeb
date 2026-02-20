@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ModuWeb.ViewEngine;
 
 namespace ModuWeb.Extensions;
@@ -45,5 +46,65 @@ public static class HttpResponseExtension
 
         response.ContentType = "text/html; charset=utf-8";
         await response.WriteAsync(html);
+    }
+
+    /// <summary>
+    /// Starts an SSE (Server-Sent Events) stream. Calls <paramref name="generator"/> in a loop
+    /// until the client disconnects. Each returned object is serialized to JSON and sent as an SSE message.<br/>
+    /// Return <c>null</c> from <paramref name="generator"/> to skip sending an event for that tick.
+    /// </summary>
+    /// <param name="response">The HTTP response.</param>
+    /// <param name="generator">Async function called each tick. Receives <see cref="CancellationToken"/>; return data object or null to skip.</param>
+    /// <param name="intervalMs">Delay between ticks in milliseconds (default 1000).</param>
+    /// <param name="eventName">Optional SSE event name (the <c>event:</c> field). If null, browser receives it via <c>onmessage</c>.</param>
+    public static async Task WriteSseAsync(
+        this HttpResponse response,
+        Func<CancellationToken, Task<object?>> generator,
+        int intervalMs = 1000,
+        string? eventName = null)
+    {
+        response.ContentType = "text/event-stream";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.Headers["Connection"] = "keep-alive";
+
+        var ct = response.HttpContext.RequestAborted;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var data = await generator(ct);
+
+                if (data != null)
+                {
+                    var json = JsonSerializer.Serialize(data, JsonOptionExtension.Options);
+
+                    if (eventName != null)
+                        await response.WriteAsync($"event: {eventName}\n", ct);
+
+                    await response.WriteAsync($"data: {json}\n\n", ct);
+                    await response.Body.FlushAsync(ct);
+                }
+
+                await Task.Delay(intervalMs, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    /// <summary>
+    /// Simplified SSE overload: sends the same <paramref name="generator"/> result on a fixed interval.
+    /// The generator has no parameters — use when the data doesn't depend on cancellation token.
+    /// </summary>
+    public static Task WriteSseAsync(
+        this HttpResponse response,
+        Func<object?> generator,
+        int intervalMs = 1000,
+        string? eventName = null)
+    {
+        return response.WriteSseAsync(
+            _ => Task.FromResult(generator()),
+            intervalMs,
+            eventName);
     }
 }
