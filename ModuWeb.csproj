@@ -19,8 +19,4 @@
 		<PackageReference Include="LiteDB" Version="5.0.21" />
 		<PackageReference Include="RazorLight" Version="2.3.1" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<Folder Include="examples\TimeServerRazor\Views\" />
-	</ItemGroup>
 </Project>
