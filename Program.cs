@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Json;
@@ -26,10 +27,25 @@ internal class Program
         builder.Services.AddSingleton<ISessionService, LiteDbSessionService>();
         builder.Services.AddSingleton<IModuleViewEngine, ModuleViewEngine>();
         builder.Services.AddCors();
+        var url = builder.Configuration["Url"] ?? "http://*:5000";
+        builder.WebHost.UseUrls(url);
+
         if (builder.Configuration.GetValue<bool>("UseHttps"))
+        {
             builder.WebHost.UseKestrelHttpsConfiguration();
-        else
-            builder.Configuration["Kestrel:Endpoints:Https:Url"] = null;
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                var certPath = builder.Configuration["Certificate:Path"];
+                var keyPath = builder.Configuration["Certificate:KeyPath"];
+                if (!string.IsNullOrEmpty(certPath) && !string.IsNullOrEmpty(keyPath))
+                {
+                    options.ConfigureHttpsDefaults(https =>
+                    {
+                        https.ServerCertificate = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+                    });
+                }
+            });
+        }
 
         builder.Services.Configure<JsonOptions>(options => options.JsonSerializerOptions());
 
