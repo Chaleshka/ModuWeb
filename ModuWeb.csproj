@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <PublishAot>false</PublishAot>
+    <PublishAot>true</PublishAot>
     <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
 
