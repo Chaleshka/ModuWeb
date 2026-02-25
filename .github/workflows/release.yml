@@ -30,11 +30,11 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
-            aot: true
+            aot: false
             archive: zip
           - os: ubuntu-latest
             rid: linux-x64
-            aot: true
+            aot: false
             archive: tar
           - os: ubuntu-latest
             rid: linux-arm64
