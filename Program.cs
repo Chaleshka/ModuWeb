@@ -18,9 +18,14 @@ internal class Program
         var builder = WebApplication.CreateSlimBuilder(args);
 
         builder.Services.AddSingleton<ICorsPolicyProvider, DynamicCorsPolicyProvider>();
+        
         builder.Services.AddSingleton<IStorageService>(provider =>
         {
-            var dbPath = Path.Combine(builder.Environment.ContentRootPath, builder.Configuration["BaseDbPath"],
+            var baseDbPathConfig = builder.Configuration["BaseDbPath"] ?? "db";
+            var normalizedPath = baseDbPathConfig.Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Trim(Path.DirectorySeparatorChar);
+            var dbPath = Path.Combine(builder.Environment.ContentRootPath, normalizedPath,
                 "storage.db");
             return new LiteDbStorageService(dbPath);
         });
