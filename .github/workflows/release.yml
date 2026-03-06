@@ -67,12 +67,12 @@ jobs:
 
       - name: Clean publish output (Linux)
         if: runner.os == 'Linux'
-        run: find ./publish -name "*.pdb" -o -name "*.xml" -o -name "*.deps.json" | xargs rm -f
+        run: find ./publish -name "*.pdb" -o -name "*.xml" | xargs rm -f
 
       - name: Clean publish output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Get-ChildItem ./publish -Include *.pdb,*.xml,*.deps.json -Recurse | Remove-Item -Force
+        run: Get-ChildItem ./publish -Include *.pdb,*.xml -Recurse | Remove-Item -Force
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
