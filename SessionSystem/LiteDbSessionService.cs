@@ -3,17 +3,25 @@ using ModuWeb;
 using ModuWeb.Storage;
 using System.Text.Json;
 using ModuWeb.Extensions;
+using Microsoft.Extensions.Configuration;
 
 namespace ModuWeb.SessionSystem
 {
     internal class LiteDbSessionService : ISessionService
     {
         private readonly IStorageService _storage;
-        private readonly TimeSpan _defaultTimeout = TimeSpan.FromMinutes(30);
+        private readonly TimeSpan _defaultTimeout;
 
-        public LiteDbSessionService(IStorageService storage)
+        public LiteDbSessionService(IStorageService storage, IConfiguration configuration)
         {
             _storage = storage;
+
+            var minutes = configuration.GetValue<double?>("Session:TimeoutMinutes");
+            if (minutes == null || minutes <= 0)
+            {
+                minutes = 7 * 24 * 60;
+            }
+            _defaultTimeout = TimeSpan.FromMinutes(minutes.Value);
         }
 
         public async Task<T> GetAsync<T>(string sessionId, string key)
@@ -25,6 +33,7 @@ namespace ModuWeb.SessionSystem
                     return default;
 
                 session.LastAccessed = DateTime.UtcNow;
+                session.ExpiresAt = DateTime.UtcNow.Add(_defaultTimeout);
                 await _storage.SetAsync("sessions", sessionId, session);
 
                 if (session.Data.TryGetValue(key, out var value))

@@ -29,7 +29,12 @@ internal class Program
                 "storage.db");
             return new LiteDbStorageService(dbPath);
         });
-        builder.Services.AddSingleton<ISessionService, LiteDbSessionService>();
+        builder.Services.AddSingleton<ISessionService>(provider =>
+        {
+            var storage = provider.GetRequiredService<IStorageService>();
+            var config = provider.GetRequiredService<IConfiguration>();
+            return new LiteDbSessionService(storage, config);
+        });
         builder.Services.AddSingleton<IModuleViewEngine, ModuleViewEngine>();
         builder.Services.AddCors();
         var url = builder.Configuration["Url"] ?? "http://*:5000";

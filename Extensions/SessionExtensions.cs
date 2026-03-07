@@ -31,12 +31,24 @@ namespace ModuWeb.Extensions
                 return sessionId;
 
             sessionId = Guid.NewGuid().ToString();
-            context.Response.Cookies.Append("Session", sessionId, new CookieOptions
+            var options = new CookieOptions
             {
                 HttpOnly = true,
                 SameSite = SameSiteMode.Strict,
                 Secure = context.Request.IsHttps
-            });
+            };
+            
+            var config = context.RequestServices.GetService<IConfiguration>();
+            if (config != null)
+            {
+                var minutes = config.GetValue<double?>("Session:TimeoutMinutes");
+                if (minutes.HasValue && minutes > 0)
+                {
+                    options.Expires = DateTimeOffset.UtcNow.AddMinutes(minutes.Value);
+                }
+            }
+
+            context.Response.Cookies.Append("Session", sessionId, options);
             return sessionId;
         }
     }
