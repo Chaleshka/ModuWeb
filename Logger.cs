@@ -13,7 +13,7 @@ public class Logger
     /// <param name="title">An optional title or context label for the message.</param>
     public static void Error(object obj, string title = null)
     {
-        Console.Write($"\u001b[0;31m[ERROR]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
+        Console.Write($"\u001b[0;31m[{DateTime.Now:s}][ERROR]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
     }
 
     /// <summary>
@@ -23,7 +23,7 @@ public class Logger
     /// <param name="title">An optional title or context label for the message.</param>
     public static void Info(object obj, string title = null)
     {
-        Console.Write($"\u001b[0;36m[INFO]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
+        Console.Write($"\u001b[0;36m[{DateTime.Now:s}][INFO]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
     }
 
     /// <summary>
@@ -33,7 +33,7 @@ public class Logger
     /// <param name="title">An optional title or context label for the message.</param>
     public static void Warn(object obj, string title = null)
     {
-        Console.Write($"\u001b[0;34m[WARN]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
+        Console.Write($"\u001b[0;34m[{DateTime.Now:s}][WARN]\u001b[0m {(title == null ? "" : $"[{title}] ")}{obj}\n");
     }
 
     /// <summary>
