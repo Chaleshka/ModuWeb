@@ -1,49 +1,53 @@
-﻿using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 
 namespace ModuWeb.ModuleLoadSystem;
 
 /// <summary>
-/// Custom <see cref="AssemblyLoadContext"/> for loading individual modules and resolving their dependencies.
+/// Collectible load context for one isolated module package.
 /// </summary>
-internal class ModuleLoadContext : AssemblyLoadContext
+internal sealed class ModuleLoadContext : AssemblyLoadContext
 {
-    private static readonly ConcurrentDictionary<string, WeakReference<Assembly>> _dependencyCache = new();
-    private readonly string _dependenciesPath;
+    private readonly AssemblyDependencyResolver _resolver;
+    private readonly IReadOnlyDictionary<string, string> _sharedDependencies;
+    private readonly string _moduleDirectory;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ModuleLoadContext"/> class with the specified module path and dependency directory.
-    /// </summary>
-    /// <param name="dependenciesPath">Path to the directory containing module-specific dependencies.</param>
-    internal ModuleLoadContext(string dependenciesPath) : base(isCollectible: true)
+    internal ModuleLoadContext(string moduleAssemblyPath, IReadOnlyDictionary<string, string> sharedDependencies)
+        : base(Path.GetFileNameWithoutExtension(moduleAssemblyPath), isCollectible: true)
     {
-        _dependenciesPath = dependenciesPath;
+        _resolver = new AssemblyDependencyResolver(moduleAssemblyPath);
+        _sharedDependencies = sharedDependencies;
+        _moduleDirectory = Path.GetDirectoryName(moduleAssemblyPath)
+            ?? throw new ArgumentException("The module assembly path must include a directory.", nameof(moduleAssemblyPath));
     }
 
-    /// <summary>
-    /// Returns and loads assemblies using the provided <see cref="AssemblyDependencyResolver"/>.
-    /// </summary>
-    /// <param name="assemblyName">The name of the assembly to resolve.</param>
-    /// <returns>The loaded assembly, or <c>null</c> if resolution failed.</returns>
-    protected override Assembly Load(AssemblyName assemblyName)
+    internal Assembly LoadMainAssembly(string moduleAssemblyPath)
+        => LoadAssemblyWithoutFileLock(moduleAssemblyPath);
+
+    protected override Assembly? Load(AssemblyName assemblyName)
     {
-        if (_dependencyCache.TryGetValue(assemblyName.Name, out var weakRef) &&
-            weakRef.TryGetTarget(out Assembly cachedAssembly))
-        {
-            return cachedAssembly;
-        }
+        var assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
+        if (assemblyPath is not null)
+            return LoadAssemblyWithoutFileLock(assemblyPath);
 
-        string depPath = Path.Combine(_dependenciesPath, $"{assemblyName.Name}.dll");
-        if (File.Exists(depPath))
-        {
-            byte[] bytes = File.ReadAllBytes(depPath);
-            var assembly = LoadFromStream(new MemoryStream(bytes));
+        var fallbackPath = Path.Combine(_moduleDirectory, $"{assemblyName.Name}.dll");
+        if (File.Exists(fallbackPath))
+            return LoadAssemblyWithoutFileLock(fallbackPath);
 
-            _dependencyCache[assemblyName.Name] = new WeakReference<Assembly>(assembly);
-            return assembly;
-        }
+        return assemblyName.Name is not null && _sharedDependencies.TryGetValue(assemblyName.Name, out var sharedDependencyPath)
+            ? LoadAssemblyWithoutFileLock(sharedDependencyPath)
+            : null;
+    }
 
-        return base.Load(assemblyName);
+    protected override nint LoadUnmanagedDll(string unmanagedDllName)
+    {
+        var libraryPath = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+        return libraryPath is null ? nint.Zero : LoadUnmanagedDllFromPath(libraryPath);
+    }
+
+    private Assembly LoadAssemblyWithoutFileLock(string assemblyPath)
+    {
+        using var stream = File.Open(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return LoadFromStream(stream);
     }
 }

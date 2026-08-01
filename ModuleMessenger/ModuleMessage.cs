@@ -6,7 +6,7 @@
     public sealed class ModuleMessage
     {
         private static ulong _messageCounter = 0;
-        internal ulong MessageId { get; } = Interlocked.Increment(ref _messageCounter);
+        internal ulong MessageId { get; } = _messageCounter == ulong.MaxValue ? 0 : Interlocked.Increment(ref _messageCounter);
         internal ulong RespondTo { get; } = 0;
 
         /// <summary>

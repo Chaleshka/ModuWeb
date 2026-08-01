@@ -1,110 +1,102 @@
 ﻿using System.Collections.Concurrent;
-using System.Reflection;
 using System.Runtime.Loader;
 using ModuWeb.Events;
 
-namespace ModuWeb.ModuleMessenger
+namespace ModuWeb.ModuleMessenger;
+
+/// <summary>
+/// Handles inter-module messaging and removes registrations with their owning load context.
+/// </summary>
+public class ModuleMessenger
 {
+    private sealed record HandlerRegistration(Action<ModuleMessage> Handler, AssemblyLoadContext Context);
+
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<AssemblyLoadContext, HandlerRegistration>> Handlers = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<ulong, TaskCompletionSource<ModuleMessage>> PendingResponses = new();
+
     /// <summary>
-    /// Handles inter-module messaging, including one-way messages and request-response communication.
+    /// Registers a handler owned by the module instance that supplied it.
     /// </summary>
-    public class ModuleMessenger
+    public static void Subscribe(Action<ModuleMessage> handler)
     {
-        private static readonly ConcurrentDictionary<string, Action<ModuleMessage>> Handlers = new();
-        private static readonly ConcurrentDictionary<ulong, TaskCompletionSource<ModuleMessage>> PendingResponses = new();
+        ArgumentNullException.ThrowIfNull(handler);
+        var module = handler.Target as ModuleBase
+            ?? throw new ArgumentException("A module message handler must be an instance method of ModuleBase.", nameof(handler));
+        var context = AssemblyLoadContext.GetLoadContext(module.GetType().Assembly)
+            ?? throw new InvalidOperationException("The module handler assembly has no load context.");
 
-        /// <summary>
-        /// Registers a message handler for the current module (using ModuleName).
-        /// </summary>
-        /// <param name="handler">The handler function that will process messages for this module.</param>
-        public static void Subscribe(Action<ModuleMessage> handler)
+        var moduleHandlers = Handlers.GetOrAdd(module.ModuleName, static _ => new());
+        moduleHandlers[context] = new HandlerRegistration(handler, context);
+    }
+
+    public static void SendMessage(ModuleMessage msg)
+    {
+        ArgumentNullException.ThrowIfNull(msg);
+        var handled = false;
+
+        if (msg.RespondTo != 0 && PendingResponses.TryRemove(msg.RespondTo, out var pending))
         {
-            Handlers[GetModuleDataByHandler(handler).Value.Module.ModuleName] = handler;
+            pending.TrySetResult(msg);
+            handled = true;
         }
 
-        /// <summary>
-        /// Sends a message to the specified module.
-        /// If module not found, then message will be dropped.
-        /// </summary>
-        /// <param name="msg">The message instance to send.</param>
-        public static void SendMessage(ModuleMessage msg)
+        var moduleHandlers = Handlers
+            .Where(entry => msg.To.Equals(entry.Key, StringComparison.OrdinalIgnoreCase) ||
+                            msg.To.StartsWith(entry.Key + ".", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(entry => entry.Key.Length)
+            .Select(entry => entry.Value)
+            .FirstOrDefault();
+        if (!handled && moduleHandlers is not null)
         {
-            bool handled = false;
-
-            if (msg.RespondTo != 0)
+            var registration = moduleHandlers.Values.FirstOrDefault(candidate =>
+                ModuleManager.Instance.IsModuleContextActive(candidate.Context));
+            if (registration is not null)
             {
-                if (PendingResponses.TryRemove(msg.RespondTo, out var pending))
-                {
-                    pending.TrySetResult(msg);
-                    handled = true;
-                }
-            }
-
-            if (!handled)
-            {
-                if (Handlers.TryGetValue(msg.To.Split('.')[0], out var handler) && InspectHandler(handler))
-                {
-                    handler.Invoke(msg);
-                    handled = true;
-                }
-            }
-
-            CallEvent(msg);
-
-            if (!handled)
-            {
-                Logger.Warn($"Module '{msg.To}' not found. Message from '{msg.From}' was dropped.");
+                registration.Handler(msg);
+                handled = true;
             }
         }
 
-        private static void CallEvent(ModuleMessage msg)
-        {  
-            Events.Events.ModuleMessageSentSafeEvent.Invoke(new ModuleMessageSentEventArgs(msg));
-        }
+        Events.Events.ModuleMessageSentSafeEvent.Invoke(new ModuleMessageSentEventArgs(msg));
+        if (!handled)
+            Logger.Warn($"Module '{msg.To}' not found. Message from '{msg.From}' was dropped.");
+    }
 
-        /// <summary>
-        /// Sends a message to the specified module and asynchronously waits for a response.
-        /// </summary>
-        /// <param name="msg">The message instance to send.</param>
-        /// <param name="timeoutInS">The maximum time in seconds to wait for a response.</param>
-        /// <returns>The response message from the target module.</returns>
-        /// <exception cref="TimeoutException">Throw when the response was not received within the timeout period.</exception>
-        public static async Task<ModuleMessage> SendAndWaitAsync(ModuleMessage msg, int timeoutInS = 2)
+    public static async Task<ModuleMessage> SendAndWaitAsync(ModuleMessage msg, int timeoutInS = 2)
+    {
+        ArgumentNullException.ThrowIfNull(msg);
+        if (timeoutInS <= 0)
+            throw new ArgumentOutOfRangeException(nameof(timeoutInS));
+
+        var tcs = new TaskCompletionSource<ModuleMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PendingResponses[msg.MessageId] = tcs;
+        try
         {
-            var tcs = new TaskCompletionSource<ModuleMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-            PendingResponses[msg.MessageId] = tcs;
             SendMessage(msg);
-
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutInS));
-            using (cts.Token.Register(() => tcs.TrySetCanceled()))
+            using var registration = cts.Token.Register(() => tcs.TrySetCanceled(cts.Token));
+            try
             {
-                try
-                {
-                    return await tcs.Task;
-                }
-                catch (TaskCanceledException)
-                {
-                    PendingResponses.TryRemove(msg.MessageId, out _);
-                    throw new TimeoutException($"No response to message {msg.MessageId} within {timeoutInS} seconds.");
-                }
+                return await tcs.Task;
+            }
+            catch (TaskCanceledException)
+            {
+                throw new TimeoutException($"No response to message {msg.MessageId} within {timeoutInS} seconds.");
             }
         }
-
-        private static KeyValuePair<string, (ModuleBase Module, AssemblyLoadContext Context)> GetModuleDataByHandler(Action<ModuleMessage> handler)
+        finally
         {
-            var method = handler.Method;
-            var asm = method.Module.Assembly;
-            var alc = AssemblyLoadContext.GetLoadContext(asm);
-            var res = ModuleManager.Instance.modules.FirstOrDefault(f => f.Value.Context.Equals(alc));
-            return res;
+            PendingResponses.TryRemove(msg.MessageId, out _);
         }
+    }
 
-        private static bool InspectHandler(Action<ModuleMessage> handler)
+    internal static void RemoveModuleHandlers(AssemblyLoadContext context)
+    {
+        foreach (var moduleHandlers in Handlers.ToArray())
         {
-            var res = GetModuleDataByHandler(handler);
-            if (res.Key == default)
-                return false;
-            return true;
+            moduleHandlers.Value.TryRemove(context, out _);
+            if (moduleHandlers.Value.IsEmpty)
+                Handlers.TryRemove(new KeyValuePair<string, ConcurrentDictionary<AssemblyLoadContext, HandlerRegistration>>(moduleHandlers.Key, moduleHandlers.Value));
         }
     }
 }

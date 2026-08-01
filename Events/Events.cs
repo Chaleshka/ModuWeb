@@ -1,4 +1,6 @@
-﻿namespace ModuWeb.Events
+﻿using System.Runtime.Loader;
+
+namespace ModuWeb.Events
 {
     public class Events
     {
@@ -30,6 +32,14 @@
         {
             add => ModuleMessageSentSafeEvent.AddHandler(value);
             remove => ModuleMessageSentSafeEvent.RemoveHandler(value);
+        }
+
+        internal static void RemoveModuleHandlers(AssemblyLoadContext context)
+        {
+            ModuleLoadedSafeEvent.RemoveHandlersFromContext(context);
+            ModuleUnloadedSafeEvent.RemoveHandlersFromContext(context);
+            RequestReceivedSafeEvent.RemoveHandlersFromContext(context);
+            ModuleMessageSentSafeEvent.RemoveHandlersFromContext(context);
         }
     }
 }

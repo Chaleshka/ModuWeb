@@ -16,19 +16,6 @@ namespace ModuWeb.Events
             }
         }
 
-        public static bool InspectDelegate(Delegate d)
-        {
-            var method = d.Method;
-            var target = d.Target;
-
-            var asm = method.Module.Assembly;
-            var alc = AssemblyLoadContext.GetLoadContext(asm);
-            var res = ModuleManager.Instance.modules.FirstOrDefault(f => f.Value.Context.Equals(alc));
-            if (res.Key == default)
-                return false;
-            return true;
-        }
-
         public void RemoveHandler(T handler)
         {
             if (handler == null) return;
@@ -41,19 +28,21 @@ namespace ModuWeb.Events
             }
         }
 
+        internal void RemoveHandlersFromContext(AssemblyLoadContext context)
+        {
+            lock (_lock)
+            {
+                _handlers.RemoveAll(handler =>
+                    ReferenceEquals(AssemblyLoadContext.GetLoadContext(handler.Method.Module.Assembly), context));
+            }
+        }
+
         public void Invoke(params object[] args)
         {
             List<T> toInvoke = new();
             lock (_lock)
             {
-                for (int i = _handlers.Count - 1; i >= 0; i--)
-                {
-                    var h = _handlers[i];
-                    if (InspectDelegate(h))
-                        toInvoke.Add(h);
-                    else
-                        _handlers.RemoveAt(i);
-                }
+                toInvoke.AddRange(_handlers);
             }
 
             foreach (var h in toInvoke)

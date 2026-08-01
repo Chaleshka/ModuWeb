@@ -29,9 +29,7 @@ public class ModuleMiddleware
     public ModuleMiddleware(RequestDelegate next, string basePath)
     {
         _next = next;
-        _basePath = basePath == "/" ? "" : basePath;
-        if (_basePath.Length > 0 && !_basePath.EndsWith("/"))
-            _basePath += "/";
+        _basePath = basePath?.Trim('/') ?? string.Empty;
 
         Instance = this;
     }
@@ -48,16 +46,22 @@ public class ModuleMiddleware
         if (string.IsNullOrEmpty(url) || url == "/")
             return moduleManager.GetModule("index");
 
-        url = url?.Trim('/');
-
-        if (url.StartsWith("index"))
-            return moduleManager.GetModule("index");
-        if (!url.StartsWith(_basePath))
-            return null;
-
-        var modulePathString = url;
+        var normalizedUrl = url.Trim('/');
+        var modulePathString = normalizedUrl;
         if (!string.IsNullOrEmpty(_basePath))
-            modulePathString = url.Replace(_basePath, "", 1);
+        {
+            if (normalizedUrl.Equals(_basePath, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var basePathPrefix = _basePath + "/";
+            if (!normalizedUrl.StartsWith(basePathPrefix, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            modulePathString = normalizedUrl[basePathPrefix.Length..];
+        }
+
+        if (string.IsNullOrEmpty(modulePathString))
+            return null;
 
         var modulePathElements = modulePathString.Split('/');
         var moduleName = modulePathElements[0];
@@ -94,6 +98,13 @@ public class ModuleMiddleware
             var module = GetModuleFromUrl(path, out var modulePath);
             if (module != null)
             {
+                using var requestLease = moduleManager.TryAcquireRequestLease(module);
+                if (requestLease is null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    return;
+                }
+
                 context.Items["ModuWeb.CurrentModule"] = module;
 
                 if (modulePath.Length == 0 && path.HasValue && !path.Value!.EndsWith('/'))

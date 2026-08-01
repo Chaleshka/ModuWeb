@@ -7,12 +7,20 @@ namespace ModuWeb;
 /// </summary>
 public abstract class ModuleBase
 {
-    private static ulong _moduleCounter = 0;
+    private string? _fallbackModuleName;
+
     /// <summary>
-    /// Gets the name of module that will be used into core. <br/>
-    /// MUST be unique name.
+    /// Gets the stable identifier of the module. Override it to provide an explicit name.
+    /// If it is not overridden, the host assigns the source DLL filename without extension
+    /// before <see cref="OnModuleLoad"/> runs.
     /// </summary>
-    public virtual string ModuleName { get; } = $"Module{Interlocked.Increment(ref _moduleCounter)}";
+    public virtual string ModuleName => _fallbackModuleName ?? string.Empty;
+
+    internal void SetFallbackModuleName(string moduleName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(moduleName);
+        _fallbackModuleName = moduleName;
+    }
 
     /// <summary>
     /// Gets the list of allowed CORS origins for this module. <br/>

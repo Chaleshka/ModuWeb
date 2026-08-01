@@ -2,14 +2,15 @@
 # ModuWeb
 
 **ModuWeb** is a .NET web application that supports dynamic runtime loading, reloading, and unloading of external modules (`.dll` files). 
-Each module is self-contained and can expose custom HTTP routes, CORS policies, and request handlers. 
+Each module can expose custom HTTP routes, CORS policies, and request handlers.
 
 ---
 
 ## 🧩 Features
 
-- 🔄 **Hot-reloadable modules** – automatically reloads modules when their `.dll` files are updated or replaced.  
-- 📁 **File system watching** – monitors the `modules/` folder for `.dll` changes using `FileSystemWatcher`.  
+- 🔄 **Hot-reloadable modules** – automatically reloads a module when its `.dll` file is updated or replaced.
+- 📦 **Shared dependencies** – managed dependencies stay once in `modules/dependencies/`; changing one reloads only modules that use it.
+- 📁 **File system watching** – monitors module and shared dependency DLLs with `FileSystemWatcher`.
 - 🌐 **Per-module CORS** – modules define their own CORS rules.  
 - 🔀 **Custom middleware routing** – routes HTTP requests to appropriate modules based on URL.  
 - 💾 **Session support** – every module can create and/or use session storage.  
@@ -156,6 +157,23 @@ After launching the program, the modules folder will be created. You need to put
 Also, if dependencies are required, drop them in the modules/dependencies folder. <br />
 If everything is fine with the modules, they will be loaded automatically.
 
+The expected layout is:
+
+```text
+modules/
+  Orders.dll
+  Reports.dll
+  dependencies/
+    Shared.Contracts.dll
+    Shared.Database.dll
+```
+
+`modules/dependencies` is shared storage: dependency DLLs are **not copied** into each module's temporary folder. The loader reads the metadata of a module and its dependency graph, then resolves only the required DLLs directly from this common directory. When a shared DLL changes, only active modules that directly or transitively reference it are reloaded.
+
+Only one active DLL per assembly simple name is supported in this shared directory. For example, two incompatible versions of `Shared.Contracts` cannot be kept side by side there.
+
+The temporary `modules/temp` folder contains only short-lived copies of module DLLs used for hot reload. The previous package is deleted when the old module has been unloaded.
+
 ---
 
 ## 🔧 Module Development
@@ -190,6 +208,8 @@ A module must inherit from [`ModuleBase`](ModuleBase.cs) and override methods su
 ```csharp
 public class HelloWorldModule : ModuleBase
 {
+    public override string ModuleName => "hello";
+
     public override async Task OnModuleLoad()
     {
         Map("hello", "GET", HelloWorldHandler);
@@ -206,12 +226,13 @@ public class HelloWorldModule : ModuleBase
 - `Map(string path, string method, Func<HttpContext, Task> handler)` — maps a route.
 - `Handle(...)` — receives and routes the request.
 - `WithOriginsCors`, `WithHeadersCors`, `BlockFailedCorsRequests` — specify CORS policies.
-- `ModuleName` — name of module that will used for some system tools.
+- `ModuleName` — canonical module identifier for routes, views, events, and messages. It must be unique. If it is not overridden, the filename without `.dll` is used as a stable fallback before `OnModuleLoad()` runs. For example, `HelloWorld.dll` uses `HelloWorld`.
 - `OnModuleLoad()` — optional initialization logic.
-- `OnModuleUnLoad()` — optional cleanup logic.
+- `OnModuleUnload()` — optional cleanup logic.
 
 Module files may have unique names:
-    - `index.dll` — special module name used to handle the main page (`/` or `/index`).
+    - a module whose `ModuleName` is `index` handles the main page (`/` or `/index`);
+    - otherwise URLs use the canonical `ModuleName`, for example `/hello/hello` for the example above.
 
 <br />
 

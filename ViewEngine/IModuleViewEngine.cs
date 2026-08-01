@@ -15,6 +15,12 @@ public interface IModuleViewEngine
     void RegisterModuleViews(string moduleName, System.Reflection.Assembly moduleAssembly);
 
     /// <summary>
+    /// Removes all views and compiled templates belonging to a module before its assembly is unloaded.
+    /// </summary>
+    /// <param name="moduleName">Module name passed to RegisterModuleViews.</param>
+    void UnregisterModuleViews(string moduleName);
+
+    /// <summary>
     /// Renders a view for a registered module.
     /// </summary>
     /// <param name="moduleName">Module name passed to RegisterModuleViews.</param>

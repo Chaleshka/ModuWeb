@@ -13,7 +13,7 @@ namespace ModuWeb;
 
 internal class Program
 {
-    internal static void Main(string[] args)
+    internal static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -73,8 +73,11 @@ internal class Program
 
         var modulesPath = Path.Combine(builder.Environment.ContentRootPath, "modules");
 
-        ModuleManager.Instance = new(modulesPath,
+        var moduleManager = new ModuleManager(modulesPath,
             builder.Configuration.GetSection("LoadOrder").Get<string[]>() ?? Array.Empty<string>(), app.Services);
+        ModuleManager.Instance = moduleManager;
+        await moduleManager.StartAsync();
+        app.Lifetime.ApplicationStopping.Register(moduleManager.Dispose);
 
         Logger.Info($"Module base path: `{builder.Configuration["BaseApiPath"]}`");
         app.UseStaticFiles();

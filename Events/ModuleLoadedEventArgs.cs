@@ -1,23 +1,14 @@
-﻿using System.Reflection;
-using System.Runtime.Loader;
-
-namespace ModuWeb.Events
+﻿namespace ModuWeb.Events
 {
     public class ModuleLoadedEventArgs : EventArgs
     {
-        public ModuleLoadedEventArgs(string moduleName, ModuleBase module, Assembly assembly, AssemblyLoadContext context, string originalPath)
+        public ModuleLoadedEventArgs(string moduleName, string originalPath)
         {
             ModuleName = moduleName;
-            Module = module;
-            Assembly = assembly;
-            Context = context;
             OriginalPath = originalPath;
         }
 
         public string ModuleName { get; }
-        public ModuleBase Module { get; }
-        public Assembly Assembly { get; }
-        public AssemblyLoadContext Context { get; }
         public string OriginalPath { get; }
     }
 }

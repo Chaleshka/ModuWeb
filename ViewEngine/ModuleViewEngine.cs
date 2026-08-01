@@ -5,36 +5,25 @@ using RazorLight;
 namespace ModuWeb.ViewEngine;
 
 /// <summary>
-/// Razor view engine for modules using RazorLight (runtime Razor compilation).
+/// Razor view engine that drops compiled-template references whenever module views change.
 /// </summary>
 public class ModuleViewEngine : IModuleViewEngine
 {
-    private readonly RazorLightEngine _engine;
-    private readonly Dictionary<string, Assembly> _moduleAssemblies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _sync = new();
+    private RazorLightEngine _engine = CreateEngine();
     private readonly Dictionary<string, Dictionary<string, string>> _templateCache = new(StringComparer.OrdinalIgnoreCase);
-
-    public ModuleViewEngine()
-    {
-        _engine = new RazorLightEngineBuilder()
-            .UseMemoryCachingProvider()
-            .Build();
-    }
+    private readonly Dictionary<string, long> _generations = new(StringComparer.OrdinalIgnoreCase);
 
     public void RegisterModuleViews(string moduleName, Assembly moduleAssembly)
     {
         ArgumentException.ThrowIfNullOrEmpty(moduleName);
         ArgumentNullException.ThrowIfNull(moduleAssembly);
 
-        _moduleAssemblies[moduleName] = moduleAssembly;
-
         var templates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var resourceNames = moduleAssembly.GetManifestResourceNames()
-            .Where(n => n.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase));
-
-        foreach (var resourceName in resourceNames)
+        foreach (var resourceName in moduleAssembly.GetManifestResourceNames().Where(name => name.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase)))
         {
             var content = LoadEmbeddedResource(moduleAssembly, resourceName);
-            if (content == null)
+            if (content is null)
                 continue;
 
             var viewKey = ResourceNameToViewKey(moduleAssembly.GetName().Name, resourceName);
@@ -42,7 +31,25 @@ public class ModuleViewEngine : IModuleViewEngine
             templates[viewKey + ".cshtml"] = content;
         }
 
-        _templateCache[moduleName] = templates;
+        lock (_sync)
+        {
+            _templateCache[moduleName] = templates;
+            _generations[moduleName] = _generations.GetValueOrDefault(moduleName) + 1;
+            ResetEngine();
+        }
+    }
+
+    public void UnregisterModuleViews(string moduleName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(moduleName);
+        lock (_sync)
+        {
+            if (!_templateCache.Remove(moduleName))
+                return;
+
+            _generations.Remove(moduleName);
+            ResetEngine();
+        }
     }
 
     public async Task<string> RenderModuleViewAsync(string moduleName, string viewName, object? model = null,
@@ -51,55 +58,64 @@ public class ModuleViewEngine : IModuleViewEngine
         ArgumentException.ThrowIfNullOrEmpty(moduleName);
         ArgumentException.ThrowIfNullOrEmpty(viewName);
 
-        if (!_templateCache.TryGetValue(moduleName, out var templates))
-            throw new InvalidOperationException($"Module '{moduleName}' views are not registered. Call RegisterModuleViews first.");
-
-        var normalizedViewName = viewName.Replace('\\', '/').TrimStart('/');
-        if (!TryGetTemplateContent(templates, moduleName, normalizedViewName, out var templateContent))
-            throw new InvalidOperationException($"View '{viewName}' not found in module '{moduleName}'.");
-
-        var cacheKey = $"{moduleName}:{normalizedViewName}";
-
-        object? renderModel = model;
-        if (viewData != null && viewData.Count > 0)
+        string templateContent;
+        string cacheKey;
+        RazorLightEngine engine;
+        lock (_sync)
         {
-            var expando = new System.Dynamic.ExpandoObject();
-            var dict = (IDictionary<string, object?>)expando;
-            if (model != null)
-            {
-                foreach (var p in model.GetType().GetProperties())
-                    dict[p.Name] = p.GetValue(model);
-                foreach (var kv in viewData)
-                    dict[kv.Key] = kv.Value;
-            }
-            else
-            {
-                foreach (var kv in viewData)
-                    dict[kv.Key] = kv.Value;
-            }
-            renderModel = expando;
+            if (!_templateCache.TryGetValue(moduleName, out var templates))
+                throw new InvalidOperationException($"Module '{moduleName}' views are not registered.");
+
+            var normalizedViewName = viewName.Replace('\\', '/').TrimStart('/');
+            if (!TryGetTemplateContent(templates, normalizedViewName, out templateContent))
+                throw new InvalidOperationException($"View '{viewName}' not found in module '{moduleName}'.");
+
+            cacheKey = $"{moduleName}:{_generations[moduleName]}:{normalizedViewName}";
+            engine = _engine;
         }
 
-        return await _engine.CompileRenderStringAsync(cacheKey, templateContent, renderModel ?? new object());
+        var renderModel = CreateRenderModel(model, viewData);
+        return await engine.CompileRenderStringAsync(cacheKey, templateContent, renderModel ?? new object());
     }
 
-    private bool TryGetTemplateContent(Dictionary<string, string> templates, string moduleName, string viewName, out string? content)
+    private static RazorLightEngine CreateEngine() => new RazorLightEngineBuilder().UseMemoryCachingProvider().Build();
+
+    private void ResetEngine() => _engine = CreateEngine();
+
+    private static object? CreateRenderModel(object? model, Dictionary<string, object>? viewData)
+    {
+        if (viewData is null || viewData.Count == 0)
+            return model;
+
+        var expando = new System.Dynamic.ExpandoObject();
+        var values = (IDictionary<string, object?>)expando;
+        if (model is not null)
+        {
+            foreach (var property in model.GetType().GetProperties())
+                values[property.Name] = property.GetValue(model);
+        }
+        foreach (var value in viewData)
+            values[value.Key] = value.Value;
+        return expando;
+    }
+
+    private static bool TryGetTemplateContent(Dictionary<string, string> templates, string viewName, out string content)
     {
         if (templates.TryGetValue(viewName, out content!))
             return true;
 
-        var altKey = viewName.Replace("/", ".");
-        foreach (var kv in templates)
+        var alternativeKey = viewName.Replace("/", ".");
+        foreach (var template in templates)
         {
-            if (kv.Key.EndsWith(altKey, StringComparison.OrdinalIgnoreCase) ||
-                kv.Key.Replace(".", "/").EndsWith(viewName, StringComparison.OrdinalIgnoreCase))
+            if (template.Key.EndsWith(alternativeKey, StringComparison.OrdinalIgnoreCase) ||
+                template.Key.Replace(".", "/").EndsWith(viewName, StringComparison.OrdinalIgnoreCase))
             {
-                content = kv.Value;
+                content = template.Value;
                 return true;
             }
         }
 
-        content = null;
+        content = null!;
         return false;
     }
 
@@ -108,7 +124,7 @@ public class ModuleViewEngine : IModuleViewEngine
         try
         {
             using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream == null)
+            if (stream is null)
                 return null;
             using var reader = new StreamReader(stream, Encoding.UTF8);
             return reader.ReadToEnd();
@@ -121,13 +137,9 @@ public class ModuleViewEngine : IModuleViewEngine
 
     private static string ResourceNameToViewKey(string? assemblyName, string resourceName)
     {
-        string path = resourceName;
-        if (!string.IsNullOrEmpty(assemblyName))
-        {
-            var prefix = assemblyName + ".";
-            if (path.StartsWith(prefix, StringComparison.Ordinal))
-                path = path[prefix.Length..];
-        }
+        var path = resourceName;
+        if (!string.IsNullOrEmpty(assemblyName) && path.StartsWith(assemblyName + ".", StringComparison.Ordinal))
+            path = path[(assemblyName.Length + 1)..];
         if (path.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase))
             path = path[..^".cshtml".Length];
         return path.Replace(".", "/");
