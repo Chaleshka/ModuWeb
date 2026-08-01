@@ -87,7 +87,7 @@ public class ModuleMiddleware
             var remote = context.Connection.RemoteIpAddress?.ToString() ?? "?";
             var port = context.Connection.RemotePort.ToString();
 
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BEHIND_PROXY")))
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BEHIND_PROXY")))
             {
                 remote = context.Request.Headers[Environment.GetEnvironmentVariable("CLIENT_IP_HEADER") ?? "X-Forwarded-For"].ToString();
                 port = "?";
