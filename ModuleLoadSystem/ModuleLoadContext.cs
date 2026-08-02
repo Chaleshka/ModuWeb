@@ -9,10 +9,10 @@ namespace ModuWeb.ModuleLoadSystem;
 internal sealed class ModuleLoadContext : AssemblyLoadContext
 {
     private readonly AssemblyDependencyResolver _resolver;
-    private readonly IReadOnlyDictionary<string, string> _sharedDependencies;
+    private readonly IReadOnlyDictionary<string, Assembly> _sharedDependencies;
     private readonly string _moduleDirectory;
 
-    internal ModuleLoadContext(string moduleAssemblyPath, IReadOnlyDictionary<string, string> sharedDependencies)
+    internal ModuleLoadContext(string moduleAssemblyPath, IReadOnlyDictionary<string, Assembly> sharedDependencies)
         : base(Path.GetFileNameWithoutExtension(moduleAssemblyPath), isCollectible: true)
     {
         _resolver = new AssemblyDependencyResolver(moduleAssemblyPath);
@@ -26,6 +26,9 @@ internal sealed class ModuleLoadContext : AssemblyLoadContext
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
+        if (assemblyName.Name is not null && _sharedDependencies.TryGetValue(assemblyName.Name, out var sharedAssembly))
+            return sharedAssembly;
+
         var assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
         if (assemblyPath is not null)
             return LoadAssemblyWithoutFileLock(assemblyPath);
@@ -34,9 +37,7 @@ internal sealed class ModuleLoadContext : AssemblyLoadContext
         if (File.Exists(fallbackPath))
             return LoadAssemblyWithoutFileLock(fallbackPath);
 
-        return assemblyName.Name is not null && _sharedDependencies.TryGetValue(assemblyName.Name, out var sharedDependencyPath)
-            ? LoadAssemblyWithoutFileLock(sharedDependencyPath)
-            : null;
+        return null;
     }
 
     protected override nint LoadUnmanagedDll(string unmanagedDllName)

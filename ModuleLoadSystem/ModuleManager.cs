@@ -44,7 +44,23 @@ internal sealed class ModuleManager : IDisposable
         internal IReadOnlySet<string> DependencyNames { get; }
     }
 
-    private sealed record DependencyFile(string Name, string Path);
+    private sealed record DependencyFile(string Name, string Path, IReadOnlySet<string> References);
+
+    private sealed class SharedDependencyEntry
+    {
+        internal SharedDependencyEntry(string name, string path, SharedDependencyLoadContext context, Assembly assembly)
+        {
+            Name = name;
+            Path = path;
+            Context = context;
+            Assembly = assembly;
+        }
+
+        internal string Name { get; }
+        internal string Path { get; }
+        internal SharedDependencyLoadContext Context { get; }
+        internal Assembly Assembly { get; }
+    }
 
     internal sealed class ModuleRequestLease : IDisposable
     {
@@ -80,6 +96,7 @@ internal sealed class ModuleManager : IDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _moduleLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<ModuleBase, int> _activeRequests = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly Dictionary<string, SharedDependencyEntry> _sharedDependencies = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _modulesDirectory;
     private readonly string _dependenciesDirectory;
     private readonly string _workingDirectory;
@@ -231,18 +248,71 @@ internal sealed class ModuleManager : IDisposable
         await _lifecycleGate.WaitAsync();
         try
         {
+            var availableDependencies = GetAvailableDependencies();
+            var normalizedDependencies = NormalizeDependencyNames(changedDependencies, availableDependencies);
+            var dependenciesToReload = GetDependentDependencies(normalizedDependencies, availableDependencies);
             var entries = _modules.ToArray()
-                .Where(entry => entry.Value.DependencyNames.Overlaps(changedDependencies))
+                .Where(entry => entry.Value.DependencyNames.Overlaps(dependenciesToReload))
                 .OrderBy(entry => GetModuleOrder(entry.Value))
                 .ThenBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            foreach (var entry in entries)
+            if (entries.Length == 0)
             {
-                if (File.Exists(entry.Value.SourcePath))
-                    await ReloadModuleCoreAsync(entry.Value.SourcePath);
-                else
+                RemoveSharedDependencies(dependenciesToReload);
+                Logger.Info($"No active modules use changed shared dependencies: {string.Join(", ", dependenciesToReload)}.");
+                return;
+            }
+
+            var missingDependencies = dependenciesToReload
+                .Where(dependencyName => _sharedDependencies.ContainsKey(dependencyName) && !availableDependencies.ContainsKey(dependencyName))
+                .ToArray();
+            if (missingDependencies.Length > 0)
+            {
+                throw new FileNotFoundException(
+                    $"Shared dependencies required by active modules were removed: {string.Join(", ", missingDependencies)}.",
+                    _dependenciesDirectory);
+            }
+
+            var requiredDependencies = GetRequiredDependencyNames(entries.Select(entry => entry.Value), availableDependencies);
+            var dependencySnapshot = CreateSharedDependencySnapshot(
+                availableDependencies,
+                requiredDependencies,
+                dependenciesToReload);
+            var candidates = new List<ModuleEntry>();
+            try
+            {
+                foreach (var entry in entries)
+                {
+                    if (!File.Exists(entry.Value.SourcePath))
+                        continue;
+
+                    candidates.Add(await CreateAndInitializeCandidateAsync(entry.Value.SourcePath, dependencySnapshot));
+                }
+
+                var previousDependencies = _sharedDependencies.Values.ToArray();
+                await ReplaceModulesTransactionallyAsync(candidates);
+
+                foreach (var entry in entries.Where(entry => !File.Exists(entry.Value.SourcePath)))
                     await UnloadModuleCoreAsync(entry.Key);
+
+                ReplaceSharedDependencies(dependencySnapshot);
+                UnloadUnusedSharedDependencies(previousDependencies, _sharedDependencies.Values);
+
+                Logger.Info($"Reloaded {candidates.Count} module(s) after shared dependency change: {string.Join(", ", dependenciesToReload)}.");
+            }
+            catch
+            {
+                foreach (var candidate in candidates)
+                {
+                    if (_modules.TryGetValue(candidate.ModuleName, out var active) && ReferenceEquals(active, candidate))
+                        continue;
+
+                    await CleanupEntryAsync(candidate.ModuleName, candidate, unregisterViews: false, notify: false);
+                }
+
+                UnloadUnusedSharedDependencies(dependencySnapshot.Values, _sharedDependencies.Values);
+                throw;
             }
         }
         finally
@@ -259,6 +329,20 @@ internal sealed class ModuleManager : IDisposable
         return index < 0 ? int.MaxValue : index;
     }
 
+    private static HashSet<string> GetRequiredDependencyNames(
+        IEnumerable<ModuleEntry> entries,
+        IReadOnlyDictionary<string, DependencyFile> availableDependencies)
+    {
+        var requiredDependencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dependencyName in entries.SelectMany(entry => entry.DependencyNames))
+        {
+            if (availableDependencies.TryGetValue(dependencyName, out var dependency))
+                requiredDependencies.Add(dependency.Name);
+        }
+
+        return requiredDependencies;
+    }
+
     private async Task ReloadModuleCoreAsync(string path)
     {
         if (Volatile.Read(ref _disposed) != 0 || !File.Exists(path))
@@ -266,14 +350,24 @@ internal sealed class ModuleManager : IDisposable
 
         var sourcePath = Path.GetFullPath(path);
         ModuleEntry? candidate = null;
+        IReadOnlyDictionary<string, SharedDependencyEntry>? dependencySnapshot = null;
         try
         {
-            candidate = await CreateAndInitializeCandidateAsync(sourcePath);
+            var availableDependencies = GetAvailableDependencies();
+            var requiredDependencies = GetRequiredDependencies(sourcePath, availableDependencies)
+                .Select(dependency => dependency.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            dependencySnapshot = CreateSharedDependencySnapshot(
+                availableDependencies,
+                requiredDependencies,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            candidate = await CreateAndInitializeCandidateAsync(sourcePath, dependencySnapshot);
             var moduleLock = _moduleLocks.GetOrAdd(candidate.ModuleName, static _ => new SemaphoreSlim(1, 1));
             await moduleLock.WaitAsync();
             try
             {
                 await ReplaceModuleAsync(candidate);
+                ReplaceSharedDependencies(dependencySnapshot);
                 candidate = null;
             }
             finally
@@ -285,6 +379,9 @@ internal sealed class ModuleManager : IDisposable
         {
             if (candidate is not null)
                 await CleanupEntryAsync(candidate.ModuleName, candidate, unregisterViews: false, notify: false);
+
+            if (dependencySnapshot is not null)
+                UnloadUnusedSharedDependencies(dependencySnapshot.Values, _sharedDependencies.Values);
 
             Logger.Error($"Failed to load module from '{path}': {ex}");
         }
@@ -345,15 +442,82 @@ internal sealed class ModuleManager : IDisposable
             await CleanupEntryAsync(previousForSource.Key, previousSourceEntry, unregisterViews: true, notify: true);
     }
 
-    private async Task<ModuleEntry> CreateAndInitializeCandidateAsync(string sourcePath)
+    private async Task ReplaceModulesTransactionallyAsync(IReadOnlyList<ModuleEntry> candidates)
+    {
+        if (candidates.Count == 0)
+            return;
+
+        var previousEntries = new Dictionary<string, ModuleEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            if (!previousEntries.TryAdd(candidate.ModuleName, null!))
+                throw new InvalidOperationException($"Multiple modules resolved to the name '{candidate.ModuleName}' during a shared dependency reload.");
+
+            if (!_modules.TryGetValue(candidate.ModuleName, out var previous) ||
+                !PathsEqual(previous.SourcePath, candidate.SourcePath))
+            {
+                throw new InvalidOperationException(
+                    $"Module identity changed from '{Path.GetFileNameWithoutExtension(candidate.SourcePath)}' to '{candidate.ModuleName}' during a shared dependency reload.");
+            }
+
+            previousEntries[candidate.ModuleName] = previous;
+        }
+
+        try
+        {
+            foreach (var candidate in candidates)
+            {
+                var previous = previousEntries[candidate.ModuleName];
+                if (!_modules.TryUpdate(candidate.ModuleName, candidate, previous))
+                    throw new InvalidOperationException($"Module '{candidate.ModuleName}' changed while its shared dependency consumers were being reloaded.");
+            }
+
+            foreach (var candidate in candidates)
+                RegisterViews(candidate.ModuleName, candidate);
+        }
+        catch
+        {
+            foreach (var candidate in candidates)
+            {
+                if (previousEntries.TryGetValue(candidate.ModuleName, out var previous))
+                    _modules.TryUpdate(candidate.ModuleName, previous, candidate);
+            }
+
+            foreach (var previous in previousEntries)
+            {
+                try
+                {
+                    RestoreViews(previous.Key, previous.Value);
+                }
+                catch (Exception restoreException)
+                {
+                    Logger.Error($"Failed to restore views for module '{previous.Key}': {restoreException}");
+                }
+            }
+
+            throw;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var previous = previousEntries[candidate.ModuleName];
+            Events.Events.ModuleLoadedSafeEvent.Invoke(new ModuleLoadedEventArgs(candidate.ModuleName, candidate.SourcePath));
+            Logger.Info($"Module reloaded: {candidate.ModuleName}");
+            await CleanupEntryAsync(candidate.ModuleName, previous, unregisterViews: false, notify: true);
+        }
+    }
+
+    private async Task<ModuleEntry> CreateAndInitializeCandidateAsync(
+        string sourcePath,
+        IReadOnlyDictionary<string, SharedDependencyEntry> sharedDependencies)
     {
         var fallbackModuleName = Path.GetFileNameWithoutExtension(sourcePath);
-        var dependencies = GetRequiredDependencies(sourcePath);
+        var dependencies = GetRequiredDependencies(sourcePath, GetAvailableDependencies());
         var packagePath = CopyModulePackage(fallbackModuleName, sourcePath);
         var moduleAssemblyPath = Path.Combine(packagePath, Path.GetFileName(sourcePath));
-        var dependencyPaths = dependencies.ToDictionary(dependency => dependency.Name, dependency => dependency.Path,
+        var dependencyAssemblies = sharedDependencies.ToDictionary(dependency => dependency.Key, dependency => dependency.Value.Assembly,
             StringComparer.OrdinalIgnoreCase);
-        var context = new ModuleLoadContext(moduleAssemblyPath, dependencyPaths);
+        var context = new ModuleLoadContext(moduleAssemblyPath, dependencyAssemblies);
         ModuleBase? module = null;
         var moduleName = fallbackModuleName;
 
@@ -397,7 +561,7 @@ internal sealed class ModuleManager : IDisposable
         }
     }
 
-    private IReadOnlyCollection<DependencyFile> GetRequiredDependencies(string sourcePath)
+    private Dictionary<string, DependencyFile> GetAvailableDependencies()
     {
         var availableDependencies = new Dictionary<string, DependencyFile>(StringComparer.OrdinalIgnoreCase);
         foreach (var dependencyPath in Directory.GetFiles(_dependenciesDirectory, "*.dll", SearchOption.TopDirectoryOnly))
@@ -406,13 +570,24 @@ internal sealed class ModuleManager : IDisposable
             {
                 var dependencyName = AssemblyName.GetAssemblyName(dependencyPath).Name;
                 if (!string.IsNullOrWhiteSpace(dependencyName))
-                    availableDependencies.TryAdd(dependencyName, new DependencyFile(dependencyName, dependencyPath));
+                    availableDependencies.TryAdd(dependencyName, new DependencyFile(
+                        dependencyName,
+                        dependencyPath,
+                        GetReferencedAssemblyNames(dependencyPath).ToHashSet(StringComparer.OrdinalIgnoreCase)));
             }
             catch (BadImageFormatException)
             {
                 Logger.Warn($"Shared dependency '{dependencyPath}' is not a managed assembly and was ignored.");
             }
         }
+
+        return availableDependencies;
+    }
+
+    private IReadOnlyCollection<DependencyFile> GetRequiredDependencies(
+        string sourcePath,
+        IReadOnlyDictionary<string, DependencyFile> availableDependencies)
+    {
 
         var requiredDependencies = new Dictionary<string, DependencyFile>(StringComparer.OrdinalIgnoreCase);
         var visitedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -436,6 +611,139 @@ internal sealed class ModuleManager : IDisposable
 
         VisitReferences(sourcePath);
         return requiredDependencies.Values.ToArray();
+    }
+
+    private static HashSet<string> GetDependentDependencies(
+        IReadOnlySet<string> changedDependencies,
+        IReadOnlyDictionary<string, DependencyFile> availableDependencies)
+    {
+        var dependenciesToReload = new HashSet<string>(changedDependencies, StringComparer.OrdinalIgnoreCase);
+        var pending = new Queue<string>(changedDependencies);
+
+        while (pending.TryDequeue(out var dependencyName))
+        {
+            foreach (var dependency in availableDependencies.Values.Where(candidate => candidate.References.Contains(dependencyName)))
+            {
+                if (dependenciesToReload.Add(dependency.Name))
+                    pending.Enqueue(dependency.Name);
+            }
+        }
+
+        return dependenciesToReload;
+    }
+
+    private HashSet<string> NormalizeDependencyNames(
+        IReadOnlySet<string> changedDependencies,
+        IReadOnlyDictionary<string, DependencyFile> availableDependencies)
+    {
+        var normalizedDependencies = new HashSet<string>(changedDependencies, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var changedDependency in changedDependencies)
+        {
+            foreach (var dependency in availableDependencies.Values)
+            {
+                if (dependency.Name.Equals(changedDependency, StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFileNameWithoutExtension(dependency.Path).Equals(changedDependency, StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedDependencies.Add(dependency.Name);
+                }
+            }
+
+            foreach (var dependency in _sharedDependencies.Values)
+            {
+                if (dependency.Name.Equals(changedDependency, StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFileNameWithoutExtension(dependency.Path).Equals(changedDependency, StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedDependencies.Add(dependency.Name);
+                }
+            }
+        }
+
+        return normalizedDependencies;
+    }
+
+    private IReadOnlyDictionary<string, SharedDependencyEntry> CreateSharedDependencySnapshot(
+        IReadOnlyDictionary<string, DependencyFile> availableDependencies,
+        IReadOnlySet<string> requiredDependencies,
+        IReadOnlySet<string> dependenciesToReload)
+    {
+        var snapshot = _sharedDependencies
+            .Where(pair => !dependenciesToReload.Contains(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        var createdEntries = new List<SharedDependencyEntry>();
+        var building = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        SharedDependencyEntry BuildDependency(string dependencyName)
+        {
+            if (snapshot.TryGetValue(dependencyName, out var existing))
+                return existing;
+
+            if (!availableDependencies.TryGetValue(dependencyName, out var dependency))
+                throw new FileNotFoundException($"Shared dependency '{dependencyName}' was not found in '{_dependenciesDirectory}'.");
+
+            if (!building.Add(dependencyName))
+                throw new InvalidOperationException($"Circular shared dependency reference involving '{dependencyName}' is not supported.");
+
+            try
+            {
+                var references = dependency.References
+                    .Where(availableDependencies.ContainsKey)
+                    .ToDictionary(referenceName => referenceName, BuildDependency, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value.Assembly, StringComparer.OrdinalIgnoreCase);
+                var context = new SharedDependencyLoadContext(dependency.Name, references);
+                var assembly = context.LoadAssembly(dependency.Path);
+                var entry = new SharedDependencyEntry(dependency.Name, dependency.Path, context, assembly);
+                snapshot[dependency.Name] = entry;
+                createdEntries.Add(entry);
+                return entry;
+            }
+            finally
+            {
+                building.Remove(dependencyName);
+            }
+        }
+
+        try
+        {
+            foreach (var dependencyName in requiredDependencies)
+                BuildDependency(dependencyName);
+
+            return snapshot;
+        }
+        catch
+        {
+            UnloadUnusedSharedDependencies(createdEntries, _sharedDependencies.Values);
+            throw;
+        }
+    }
+
+    private void ReplaceSharedDependencies(IReadOnlyDictionary<string, SharedDependencyEntry> snapshot)
+    {
+        _sharedDependencies.Clear();
+        foreach (var dependency in snapshot)
+            _sharedDependencies[dependency.Key] = dependency.Value;
+    }
+
+    private void RemoveSharedDependencies(IReadOnlySet<string> dependencyNames)
+    {
+        var removedEntries = dependencyNames
+            .Where(_sharedDependencies.ContainsKey)
+            .Select(dependencyName => _sharedDependencies[dependencyName])
+            .ToArray();
+
+        foreach (var dependencyName in dependencyNames)
+            _sharedDependencies.Remove(dependencyName);
+
+        UnloadUnusedSharedDependencies(removedEntries, _sharedDependencies.Values);
+    }
+
+    private static void UnloadUnusedSharedDependencies(
+        IEnumerable<SharedDependencyEntry> entries,
+        IEnumerable<SharedDependencyEntry> retainedEntries)
+    {
+        var retainedContexts = retainedEntries.Select(entry => entry.Context).ToHashSet();
+        foreach (var entry in entries.Where(entry => !retainedContexts.Contains(entry.Context)))
+            entry.Context.Unload();
     }
 
     private static IEnumerable<string> GetReferencedAssemblyNames(string assemblyPath)
@@ -619,6 +927,10 @@ internal sealed class ModuleManager : IDisposable
         _watcher.Dispose();
         foreach (var moduleName in _modules.Keys.ToArray())
             UnloadModule(moduleName).GetAwaiter().GetResult();
+
+        foreach (var dependency in _sharedDependencies.Values)
+            dependency.Context.Unload();
+        _sharedDependencies.Clear();
 
         foreach (var moduleLock in _moduleLocks.Values)
             moduleLock.Dispose();

@@ -9,7 +9,7 @@ Each module can expose custom HTTP routes, CORS policies, and request handlers.
 ## 🧩 Features
 
 - 🔄 **Hot-reloadable modules** – automatically reloads a module when its `.dll` file is updated or replaced.
-- 📦 **Shared dependencies** – managed dependencies stay once in `modules/dependencies/`; changing one reloads only modules that use it.
+- 📦 **Shared dependencies** – one managed assembly generation is shared by all consuming modules; changing one reloads only its affected consumers.
 - 📁 **File system watching** – monitors module and shared dependency DLLs with `FileSystemWatcher`.
 - 🌐 **Per-module CORS** – modules define their own CORS rules.  
 - 🔀 **Custom middleware routing** – routes HTTP requests to appropriate modules based on URL.  
@@ -58,6 +58,7 @@ ModuWeb/
 ├── ModuleLoadSystem/
 │   ├── ModuleLoadContext.cs                # Custom AssemblyLoadContext
 │   ├── ModuleManager.cs                    # Loads/unloads modules and handles lifecycle
+│   ├── SharedDependencyLoadContext.cs       # Collectible context for one shared dependency generation
 │   └── ModuleWatcher.cs                    # Watches for module file changes
 │
 ├── ModuleMessenger/
@@ -168,7 +169,11 @@ modules/
     Shared.Database.dll
 ```
 
-`modules/dependencies` is shared storage: dependency DLLs are **not copied** into each module's temporary folder. The loader reads the metadata of a module and its dependency graph, then resolves only the required DLLs directly from this common directory. When a shared DLL changes, only active modules that directly or transitively reference it are reloaded.
+`modules/dependencies` is shared storage: dependency DLLs are **not copied** into each module's temporary folder. The loader reads the metadata of a module and its dependency graph, then loads one collectible assembly generation for every required shared DLL. All modules that use the same generation receive the very same CLR `Assembly` instance. Therefore public DTOs from that DLL can be passed through `ModuleMessage.Data` and cast by another consumer, while `static` fields are shared by those consumers.
+
+When a shared DLL changes, ModuWeb rebuilds that dependency generation, every shared DLL that transitively depends on it, and only active modules whose dependency graph contains one of them. Replacement candidates are initialized before the active modules are changed; if initialization or view registration fails, the previous group remains active. A regular module-only reload reuses the current shared dependency generation.
+
+Circular references between DLLs in `modules/dependencies` are not supported and are rejected during loading.
 
 Only one active DLL per assembly simple name is supported in this shared directory. For example, two incompatible versions of `Shared.Contracts` cannot be kept side by side there.
 
@@ -410,8 +415,9 @@ SSE is optional. ModuWeb ships with jQuery (`/jquery-4.0.0.js`) available for al
 
 ## 📌 Notes
 
-- Dependencies should be placed in `modules/dependencies/`. They will be copied automatically.
-- Modules are loaded into memory. Dependencies only as 
+- Dependencies belong in `modules/dependencies/`; they are loaded from there and are not copied into temporary module packages.
+- A shared DLL has one active generation per assembly simple name. Keep DTOs and shared `static` state only in such dependencies, not in module DLLs.
+- Replacing a shared dependency creates a new generation for its affected consumers. Objects from the previous generation must not be retained and cast by modules that were reloaded to the new generation.
 - A failed module load is logged but does not crash the host.
 - The middleware checks the base API path (from configuration) and maps requests accordingly.
 - Empty string into path in Map will mean base url with some method.
